@@ -1,4 +1,4 @@
-// app/(auth)/SignupScreen.tsx
+// app/(auth)/Signup.tsx
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import { useAuth } from '@/src/context/AuthContext';
@@ -39,7 +39,7 @@ export default function SignupScreen() {
               // Sign the user out so that they must log in from the LoginScreen.
               await logout();
               // Redirect to LoginScreen.
-              router.replace('/LoginScreen');
+              router.replace('/Login');
             },
           },
         ]
@@ -77,7 +77,7 @@ export default function SignupScreen() {
       <Button title="Sign Up" onPress={handleSignup} />
       <View style={styles.toggleContainer}>
         <Text>Already have an account?</Text>
-        <Button title="Go to Login" onPress={() => router.replace('/LoginScreen')} />
+        <Button title="Go to Login" onPress={() => router.replace('/Login')} />
       </View>
     </View>
   );

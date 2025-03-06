@@ -1,4 +1,4 @@
-// app/(auth)/LoginScreen.tsx
+// app/(auth)/Login.tsx
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import { useAuth } from '@/src/context/AuthContext';
@@ -40,7 +40,7 @@ export default function LoginScreen() {
       <Button title="Login" onPress={handleLogin} />
       <View style={styles.toggleContainer}>
         <Text>Don't have an account?</Text>
-        <Button title="Go to Sign Up" onPress={() => router.replace('/SignupScreen')} />
+        <Button title="Go to Sign Up" onPress={() => router.replace('/Signup')} />
       </View>
     </View>
   );

@@ -9,11 +9,13 @@ import {
   sendEmailVerification,
 } from 'firebase/auth';
 import { firebaseApp } from '../firebase/config';
+import { computeSUUID } from '@/src/utils/hash';
 
 const auth = getAuth(firebaseApp);
 
 interface AuthContextProps {
   user: any;
+  suuid: string | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -24,10 +26,18 @@ const AuthContext = createContext<AuthContextProps | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<any>(null);
+  const [suuid, setSUUID] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (usr) => {
+    const unsubscribe = onAuthStateChanged(auth, async (usr) => {
       setUser(usr);
+      if (usr) {
+        // Compute and store the SUUID once per session.
+        const computed = await computeSUUID(usr.uid);
+        setSUUID(computed);
+      } else {
+        setSUUID(null);
+      }
     });
     return unsubscribe;
   }, []);
@@ -35,7 +45,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const refreshUser = async () => {
     if (auth.currentUser) {
       await auth.currentUser.reload();
-      // Force an update with the reloaded user
       setUser(auth.currentUser);
     }
   };
@@ -54,19 +63,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      // Check if the user's email is verified
-      if (!user.emailVerified) {
-        // Sign out immediately if not verified
+      const usr = userCredential.user;
+      if (!usr.emailVerified) {
         await signOut(auth);
-        throw new Error("Your email is not verified. Please check your inbox and verify your email before logging in.");
+        throw new Error("Your email is not verified. Please verify your email before logging in.");
       }
     } catch (error) {
       console.error('Error during sign-in:', error);
       throw error;
     }
   };
-  
 
   const logout = async () => {
     try {
@@ -78,7 +84,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, signIn, signUp, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, suuid, signIn, signUp, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

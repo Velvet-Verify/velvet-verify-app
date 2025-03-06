@@ -17,7 +17,7 @@ function AuthRedirect() {
     if (user && user.emailVerified) {
       router.replace('/');
     } else {
-      router.replace('/LoginScreen');
+      router.replace('/Login');
     }
   }, [mounted, user, router]);
 
