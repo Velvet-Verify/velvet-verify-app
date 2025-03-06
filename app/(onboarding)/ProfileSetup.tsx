@@ -1,17 +1,67 @@
 // app/(onboarding)/ProfileSetup.tsx
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  Button,
+  StyleSheet,
+  Alert,
+  Image,
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { getFirestore, doc, setDoc } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { firebaseApp } from '@/src/firebase/config';
 import { useAuth } from '@/src/context/AuthContext';
 import { computePSUUIDFromSUUID } from '@/src/utils/hash';
 
 export default function ProfileSetup() {
   const [displayName, setDisplayName] = useState('');
+  const [imageUri, setImageUri] = useState<string>('');
+  const [uploading, setUploading] = useState(false);
   const router = useRouter();
   const { user, suuid } = useAuth();
   const db = getFirestore(firebaseApp);
+  const storage = getStorage(firebaseApp);
+
+  // Function to pick image from the gallery using new API format
+  const pickImageFromGallery = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Permission to access gallery is needed!');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
+
+  // Function to take a photo using the camera using new API format
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Permission to access camera is needed!');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
+
+  // Helper function to convert image URI to blob
+  const uriToBlob = async (uri: string): Promise<Blob> => {
+    const response = await fetch(uri);
+    return await response.blob();
+  };
 
   const handleProfileSetup = async () => {
     if (!displayName.trim()) {
@@ -22,12 +72,26 @@ export default function ProfileSetup() {
       Alert.alert('Error', 'User not found or not initialized. Please log in again.');
       return;
     }
+    setUploading(true);
     try {
       // Compute PSUUID from the cached SUUID.
       const psuuid = await computePSUUIDFromSUUID(suuid);
+      let imageUrl = '';
+
+      // If an image is selected, upload it to Firebase Storage.
+      if (imageUri) {
+        const blob = await uriToBlob(imageUri);
+        // Create a reference: you might store in a folder "profileImages"
+        const storageRef = ref(storage, `profileImages/${psuuid}.jpg`);
+        await uploadBytes(storageRef, blob);
+        imageUrl = await getDownloadURL(storageRef);
+      }
+
+      // Save the public profile document to Firestore.
       await setDoc(doc(db, 'publicProfile', psuuid), {
         PSUUID: psuuid,
         displayName: displayName.trim(),
+        imageUrl, // will be empty string if no image was uploaded
         createdAt: new Date().toISOString(),
       });
       router.replace('/');
@@ -35,6 +99,7 @@ export default function ProfileSetup() {
       console.error('Error creating public profile:', error);
       Alert.alert('Error', error.message);
     }
+    setUploading(false);
   };
 
   return (
@@ -46,7 +111,20 @@ export default function ProfileSetup() {
         value={displayName}
         onChangeText={setDisplayName}
       />
-      <Button title="Create Profile" onPress={handleProfileSetup} />
+      <View style={styles.buttonRow}>
+        <Button title="Choose from Gallery" onPress={pickImageFromGallery} />
+        <Button title="Take Photo" onPress={takePhoto} />
+      </View>
+      {imageUri ? (
+        <Image source={{ uri: imageUri }} style={styles.previewImage} />
+      ) : (
+        <Text style={styles.previewText}>No profile picture selected</Text>
+      )}
+      <Button
+        title={uploading ? 'Uploading...' : 'Create Profile'}
+        onPress={handleProfileSetup}
+        disabled={uploading}
+      />
     </View>
   );
 }
@@ -69,5 +147,22 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 20,
     borderRadius: 5,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  previewImage: {
+    width: 150,
+    height: 150,
+    alignSelf: 'center',
+    marginBottom: 20,
+    borderRadius: 75,
+  },
+  previewText: {
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#888',
   },
 });
