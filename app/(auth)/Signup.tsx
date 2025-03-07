@@ -1,5 +1,6 @@
+// app/(auth)/Signup.tsx
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, Button, Alert } from 'react-native';
 import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { useTheme } from 'styled-components/native';
@@ -12,7 +13,6 @@ export default function SignupScreen() {
   const { signUp, logout } = useAuth();
   const router = useRouter();
 
-  // Password must be at least 8 characters with one uppercase, one lowercase, one number, and one special character.
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
 
   const handleSignup = async () => {
@@ -48,10 +48,11 @@ export default function SignupScreen() {
   };
 
   return (
-    <View style={[styles.container, theme.container]}>
-      <Text style={[styles.title, theme.title]}>Sign Up</Text>
+    <View style={theme.centerContainer}>
+      <Text style={theme.title}>Sign Up</Text>
+
       <TextInput
-        style={styles.input}
+        style={theme.input}
         placeholder="Email"
         value={email}
         onChangeText={setEmail}
@@ -59,28 +60,30 @@ export default function SignupScreen() {
         keyboardType="email-address"
       />
       <TextInput
-        style={styles.input}
+        style={theme.input}
         placeholder="Password"
         value={password}
         onChangeText={setPassword}
         secureTextEntry
       />
       <TextInput
-        style={styles.input}
+        style={theme.input}
         placeholder="Confirm Password"
         value={confirmPassword}
         onChangeText={setConfirmPassword}
         secureTextEntry
       />
-      <Button 
-        title="Sign Up" 
-        onPress={handleSignup} 
+
+      <Button
+        title="Sign Up"
+        onPress={handleSignup}
         color={theme.buttonPrimary.backgroundColor}
       />
-      <View style={styles.toggleContainer}>
+
+      <View style={{ marginTop: 20, alignItems: 'center' }}>
         <Text>Already have an account?</Text>
-        <Button 
-          title="Go to Login" 
+        <Button
+          title="Go to Login"
           onPress={() => router.replace('/Login')}
           color={theme.buttonSecondary.backgroundColor}
         />
@@ -88,27 +91,3 @@ export default function SignupScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  title: {
-    fontSize: 24,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc', // Can be updated to a theme color later.
-    padding: 10,
-    marginBottom: 10,
-    borderRadius: 5,
-  },
-  toggleContainer: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-});

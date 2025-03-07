@@ -26,6 +26,7 @@ import SubmitTestResults from '@/components/SubmitTestResults';
 import { BlurView } from 'expo-blur';
 import { useStdis } from '@/hooks/useStdis';
 import { useTheme } from 'styled-components/native';
+import { ThemedModal } from '@/components/ui/ThemedModal';
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -306,59 +307,59 @@ export default function HomeScreen() {
       </View>
 
       {/* Modals */}
-      <Modal visible={editNameModalVisible} transparent animationType="slide">
-        <View style={styles.modalBackground}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Edit Display Name</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={newDisplayName}
-              onChangeText={setNewDisplayName}
-              placeholder="Enter new display name"
-            />
-            <View style={styles.modalButtonRow}>
-              <Button title="Cancel" onPress={() => setEditNameModalVisible(false)} />
-              <Button title="Save" onPress={handleUpdateDisplayName} />
-            </View>
-          </View>
+      <ThemedModal
+        visible={editNameModalVisible}
+        onRequestClose={() => setEditNameModalVisible(false)}
+      >
+        <Text style={theme.modalTitle}>Edit Display Name</Text>
+        <TextInput
+          style={styles.modalInput}
+          value={newDisplayName}
+          onChangeText={setNewDisplayName}
+          placeholder="Enter new display name"
+        />
+        <View style={styles.modalButtonRow}>
+          <Button title="Cancel" onPress={() => setEditNameModalVisible(false)} />
+          <Button title="Save" onPress={handleUpdateDisplayName} />
         </View>
-      </Modal>
+      </ThemedModal>
 
-      <Modal visible={editPhotoModalVisible} transparent animationType="slide">
-        <View style={styles.modalBackground}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Edit Profile Photo</Text>
-            {newPhotoUri ? (
-              <Image
-                source={{ uri: newPhotoUri }}
-                style={styles.modalPreviewImage}
-              />
-            ) : (
-              <DefaultAvatar size={150} />
-            )}
-            <View style={styles.modalButtonRow}>
-              <Button title="Gallery" onPress={pickImageFromGallery} />
-              <Button title="Camera" onPress={takePhoto} />
-              <Button title="Remove" onPress={removePhoto} />
-            </View>
-            <View style={styles.modalButtonRow}>
-              <Button title="Cancel" onPress={() => setEditPhotoModalVisible(false)} />
-              <Button title="Save" onPress={handleUpdatePhoto} />
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={submitTestModalVisible} transparent animationType="slide">
-        <BlurView intensity={50} style={styles.modalBackground}>
-          <SubmitTestResults
-            onClose={() => {
-              setSubmitTestModalVisible(false);
-              refreshHealthStatuses(); // Refresh health statuses after submitting.
-            }}
+      <ThemedModal
+        visible={editPhotoModalVisible}
+        onRequestClose={() => setEditPhotoModalVisible(false)}
+      >
+        <Text style={styles.modalTitle}>Edit Profile Photo</Text>
+        {newPhotoUri ? (
+          <Image
+            source={{ uri: newPhotoUri }}
+            style={styles.modalPreviewImage}
           />
-        </BlurView>
-      </Modal>
+        ) : (
+          <DefaultAvatar size={150} />
+        )}
+        <View style={styles.modalButtonRow}>
+          <Button title="Gallery" onPress={pickImageFromGallery} />
+          <Button title="Camera" onPress={takePhoto} />
+          <Button title="Remove" onPress={removePhoto} />
+        </View>
+        <View style={styles.modalButtonRow}>
+          <Button title="Cancel" onPress={() => setEditPhotoModalVisible(false)} />
+          <Button title="Save" onPress={handleUpdatePhoto} />
+        </View>
+      </ThemedModal>
+
+      <ThemedModal
+        visible={submitTestModalVisible}
+        useBlur
+        onRequestClose={() => setSubmitTestModalVisible(false)}
+      >
+        <SubmitTestResults
+          onClose={() => {
+            setSubmitTestModalVisible(false);
+            refreshHealthStatuses();
+          }}
+        />
+      </ThemedModal>
     </SafeAreaView>
   );
 }
@@ -441,29 +442,6 @@ const styles = StyleSheet.create({
   healthStatusText: {
     fontSize: 14,
     color: '#555',
-  },
-  logoutButtonContainer: {
-    // Positioned via inline style.
-  },
-  modalBackground: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContainer: {
-    width: '90%',
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 10,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
   },
   modalInput: {
     borderWidth: 1,

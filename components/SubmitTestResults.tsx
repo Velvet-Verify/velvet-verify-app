@@ -1,22 +1,30 @@
 // components/SubmitTestResults.tsx
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  Button, 
-  StyleSheet, 
-  Alert, 
-  FlatList, 
-  TouchableOpacity 
+import {
+  View,
+  Text,
+  Button,
+  StyleSheet,
+  Alert,
+  FlatList,
+  TouchableOpacity,
+  Platform,
+  TextInput,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, {
+  AndroidNativeProps,
+  IOSNativeProps,
+} from '@react-native-community/datetimepicker';
+import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { useRouter } from 'expo-router';
 import { getFirestore, collection, addDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { firebaseApp } from '@/src/firebase/config';
 import { useAuth } from '@/src/context/AuthContext';
-import { computeHSUUIDFromSUUID, computeTSUUIDFromSUUID } from '@/src/utils/hash';
+import {
+  computeHSUUIDFromSUUID,
+  computeTSUUIDFromSUUID,
+} from '@/src/utils/hash';
 import { useStdis } from '@/hooks/useStdis';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from 'styled-components/native';
 
 type TestResultOption = 'positive' | 'negative' | 'notTested';
@@ -31,13 +39,16 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
   const router = useRouter();
   const db = getFirestore(firebaseApp);
   const { stdis, loading: stdisLoading } = useStdis();
-  const insets = useSafeAreaInsets();
-  
+
   const [testDate, setTestDate] = useState(new Date());
-  const [results, setResults] = useState<{ [key: string]: TestResultOption }>({});
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
+  const [results, setResults] = useState<{ [key: string]: TestResultOption }>(
+    {}
+  );
   const [submitting, setSubmitting] = useState(false);
 
-  // Initialize results to "notTested" for each STDI when STDIs load.
+  // Initialize results to "notTested" for each STDI when stdis load.
   useEffect(() => {
     if (!stdisLoading && stdis.length > 0) {
       const initialResults: { [key: string]: TestResultOption } = {};
@@ -59,27 +70,31 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
         const resultOption = results[stdi.id];
         // Only process if the result is positive or negative.
         if (resultOption === 'notTested') continue;
+
         const booleanResult = resultOption === 'positive';
-        // Compute TSUUID for testResults:
         const tsuuid = await computeTSUUIDFromSUUID(suuid);
+
         // Add a new document in testResults collection:
         await addDoc(collection(db, 'testResults'), {
-          STDI: stdi.id, // storing shortname
+          STDI: stdi.id,
           TSUUID: tsuuid,
           result: booleanResult,
           testDate: testDate,
         });
-        // Now update healthStatus for this STDI:
+
+        // Update healthStatus
         const hsUUID = await computeHSUUIDFromSUUID(suuid);
         const hsDocId = `${hsUUID}_${stdi.id}`;
         const hsDocRef = doc(db, 'healthStatus', hsDocId);
         const hsDocSnap = await getDoc(hsDocRef);
+
         if (!hsDocSnap.exists()) {
           await setDoc(hsDocRef, {
             testResult: booleanResult,
             testDate: testDate,
           });
         } else {
+          // If the document exists, update only if new testDate is later
           const currentTestDate = hsDocSnap.data().testDate.toDate();
           if (testDate > currentTestDate) {
             await updateDoc(hsDocRef, {
@@ -99,136 +114,174 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
     setSubmitting(false);
   };
 
+  // If we’re still loading STDIs, show a loading screen
   if (stdisLoading) {
     return (
-      <SafeAreaView style={theme.container}>
-        <View style={styles.loadingContainer}>
-          <Text style={[styles.title, theme.title]}>Loading STDIs...</Text>
-        </View>
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <Text style={[styles.title, theme.title]}>Loading STDIs...</Text>
+      </View>
     );
   }
 
+  // For iOS, we explicitly set display="spinner" so it shows a single overlay immediately
+  // For Android, "default" is fine. (If you prefer the Android spinner style, you can use "spinner" too.)
+  const datePickerDisplay: IOSNativeProps['display'] | AndroidNativeProps['display'] =
+    Platform.OS === 'ios' ? 'spinner' : 'default';
+
   return (
-    <SafeAreaView style={theme.container}>
-      <View style={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
-        <Text style={[styles.title, theme.title]}>Submit Test Results</Text>
-        <Text style={styles.label}>Test Date:</Text>
-        <DateTimePicker
-          value={testDate}
-          mode="date"
-          display="default"
-          onChange={(event, selectedDate) => {
-            if (selectedDate) setTestDate(selectedDate);
-          }}
-        />
-        <Text style={styles.subtitle}>Select test result for each STDI:</Text>
+    <View style={styles.container}>
+      <Text style={[styles.title, theme.title]}>Submit Test Results</Text>
+
+      {/* Show selected date or placeholder */}
+      <View style={styles.dateRow}>
+        <Text style={styles.label}>
+          Test Date: {testDate.toLocaleDateString()}
+        </Text>
+
+        {Platform.OS === 'web' ? (
+          <TextInput
+            style={[
+              theme.input,
+              { marginTop: 8, marginBottom: 16, width: '100%' },
+            ]}
+            placeholder="YYYY-MM-DD"
+            value={testDate.toISOString().slice(0, 10)} // e.g. "2023-12-31"
+            onChangeText={(val) => {
+              const [year, month, day] = val.split('-').map(Number);
+              if (year && month && day) {
+                setTestDate(new Date(year, month - 1, day));
+              }
+            }}
+          />
+        ) : (
+          <>
+            <Button
+              title="Select Date"
+              onPress={() => setDatePickerVisibility(true)}
+              color={theme.buttonSecondary.backgroundColor}
+            />
+            <DateTimePickerModal
+              isVisible={isDatePickerVisible}
+              mode="date"
+              date={testDate}
+              onConfirm={(date) => {
+                setTestDate(date);
+                setDatePickerVisibility(false);
+              }}
+              onCancel={() => setDatePickerVisibility(false)}
+            />
+          </>
+        )}
+      </View>
+
+      <Text style={styles.subtitle}>Select test result for each STDI:</Text>
+      {stdis.length === 0 ? (
+        <Text>No STDIs available.</Text>
+      ) : (
         <FlatList
           data={stdis}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <View style={styles.itemRow}>
-              <Text style={styles.itemText}>{item.id}</Text>
-              <View style={styles.optionContainer}>
-                {/* Negative option on the left */}
-                <TouchableOpacity
-                  onPress={() =>
-                    setResults((prev) => ({ ...prev, [item.id]: 'negative' }))
-                  }
-                  style={[
-                    styles.optionButton,
-                    results[item.id] === 'negative'
-                      ? styles.negativeSelected
-                      : styles.unselectedOption,
-                  ]}
-                >
-                  <Text
+          renderItem={({ item }) => {
+            const isNegative = results[item.id] === 'negative';
+            const isPositive = results[item.id] === 'positive';
+            const isNotTested = results[item.id] === 'notTested';
+
+            return (
+              <View style={styles.itemRow}>
+                <Text style={styles.itemText}>{item.id}</Text>
+                <View style={styles.optionContainer}>
+                  {/* Negative */}
+                  <TouchableOpacity
+                    onPress={() =>
+                      setResults((prev) => ({ ...prev, [item.id]: 'negative' }))
+                    }
                     style={[
-                      styles.optionText,
-                      results[item.id] === 'negative'
-                        ? styles.selectedText
-                        : styles.unselectedText,
+                      styles.optionButton,
+                      isNegative ? styles.negativeSelected : styles.unselectedOption,
                     ]}
                   >
-                    –
-                  </Text>
-                </TouchableOpacity>
-                {/* Not Tested in the middle */}
-                <TouchableOpacity
-                  onPress={() =>
-                    setResults((prev) => ({ ...prev, [item.id]: 'notTested' }))
-                  }
-                  style={[
-                    styles.optionButton,
-                    results[item.id] === 'notTested'
-                      ? styles.notTestedSelected
-                      : styles.unselectedOption,
-                  ]}
-                >
-                  <Text
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isNegative ? styles.selectedText : styles.unselectedText,
+                      ]}
+                    >
+                      –
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Not Tested */}
+                  <TouchableOpacity
+                    onPress={() =>
+                      setResults((prev) => ({ ...prev, [item.id]: 'notTested' }))
+                    }
                     style={[
-                      styles.optionText,
-                      results[item.id] === 'notTested'
-                        ? styles.selectedText
-                        : styles.unselectedText,
+                      styles.optionButton,
+                      isNotTested ? styles.notTestedSelected : styles.unselectedOption,
                     ]}
                   >
-                    ○
-                  </Text>
-                </TouchableOpacity>
-                {/* Positive option on the right */}
-                <TouchableOpacity
-                  onPress={() =>
-                    setResults((prev) => ({ ...prev, [item.id]: 'positive' }))
-                  }
-                  style={[
-                    styles.optionButton,
-                    results[item.id] === 'positive'
-                      ? styles.positiveSelected
-                      : styles.unselectedOption,
-                  ]}
-                >
-                  <Text
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isNotTested ? styles.selectedText : styles.unselectedText,
+                      ]}
+                    >
+                      ○
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Positive */}
+                  <TouchableOpacity
+                    onPress={() =>
+                      setResults((prev) => ({ ...prev, [item.id]: 'positive' }))
+                    }
                     style={[
-                      styles.optionText,
-                      results[item.id] === 'positive'
-                        ? styles.selectedText
-                        : styles.unselectedText,
+                      styles.optionButton,
+                      isPositive ? styles.positiveSelected : styles.unselectedOption,
                     ]}
                   >
-                    +
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      style={[
+                        styles.optionText,
+                        isPositive ? styles.selectedText : styles.unselectedText,
+                      ]}
+                    >
+                      +
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          )}
+            );
+          }}
         />
-        <View style={styles.buttonRow}>
-          <Button
-            title="Cancel"
-            onPress={onClose}
-            color={theme.buttonSecondary.backgroundColor}
-          />
-          <Button
-            title={submitting ? 'Submitting...' : 'Submit'}
-            onPress={handleSubmit}
-            disabled={submitting}
-            color={theme.buttonPrimary.backgroundColor}
-          />
-        </View>
+      )}
+
+      <View style={styles.buttonRow}>
+        <Button
+          title="Cancel"
+          onPress={onClose}
+          color={theme.buttonSecondary.backgroundColor}
+        />
+        <Button
+          title={submitting ? 'Submitting...' : 'Submit'}
+          onPress={handleSubmit}
+          disabled={submitting}
+          color={theme.buttonPrimary.backgroundColor}
+        />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   loadingContainer: {
-    flex: 1,
+    // No flex:1 so it doesn't fill the entire ThemedModal
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   container: {
-    flex: 1,
+    // No flex:1 to prevent squishing inside the ThemedModal
     padding: 20,
   },
   title: {
@@ -268,7 +321,6 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     borderWidth: 1,
   },
-  // New selected styles for each option:
   negativeSelected: {
     backgroundColor: 'green',
     borderColor: 'green',
@@ -299,5 +351,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginTop: 20,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 10,
   },
 });

@@ -1,33 +1,54 @@
 // constants/Themes.ts
 import { StyleSheet } from 'react-native';
-import Colors from './Colors';
+import Colors from '@/constants/Colors';
 
-// Define common typography settings.
 const typography = {
   fontFamily: 'Montserrat',
-  titleFontSize: 24,
-  bodyFontSize: 16,
-  // titleFontWeight: 'bold' as 'bold', 
-  titleFontWeight: 400, 
+  titleFontWeight: '400', // or 'bold'
 };
 
 export const lightTheme = StyleSheet.create({
+  // Basic container
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
     padding: 20,
   },
+  // A container that also centers content
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: Colors.light.background,
+  },
+
+  // Titles
   title: {
-    fontSize: typography.titleFontSize,
+    fontSize: 24,
     fontFamily: typography.fontFamily,
     fontWeight: typography.titleFontWeight,
     color: Colors.light.primary,
+    textAlign: 'center',
+    marginBottom: 20,
   },
+
+  // Body text (if needed)
   bodyText: {
-    fontSize: typography.bodyFontSize,
+    fontSize: 16,
     fontFamily: typography.fontFamily,
     color: Colors.light.text,
   },
+
+  // Inputs
+  input: {
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+
+  // Buttons
   buttonPrimary: {
     backgroundColor: Colors.light.buttonPrimary,
     padding: 10,
@@ -38,7 +59,27 @@ export const lightTheme = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
   },
-  // ... add any additional common styles for light mode.
+
+  // Common modal styles
+  modalBackground: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '90%',
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: Colors.light.text,
+  },
 });
 
 export const darkTheme = StyleSheet.create({
@@ -47,16 +88,31 @@ export const darkTheme = StyleSheet.create({
     backgroundColor: Colors.dark.background,
     padding: 20,
   },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: Colors.dark.background,
+  },
   title: {
-    fontSize: typography.titleFontSize,
+    fontSize: 24,
     fontFamily: typography.fontFamily,
     fontWeight: typography.titleFontWeight,
     color: Colors.dark.primary,
+    textAlign: 'center',
+    marginBottom: 20,
   },
   bodyText: {
-    fontSize: typography.bodyFontSize,
+    fontSize: 16,
     fontFamily: typography.fontFamily,
     color: Colors.dark.text,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
   },
   buttonPrimary: {
     backgroundColor: Colors.dark.buttonPrimary,
@@ -68,7 +124,25 @@ export const darkTheme = StyleSheet.create({
     padding: 10,
     borderRadius: 5,
   },
-  // ... add any additional common styles for dark mode.
+  modalBackground: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '90%',
+    backgroundColor: '#222',
+    padding: 20,
+    borderRadius: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: Colors.dark.text,
+  },
 });
 
 export default { light: lightTheme, dark: darkTheme };
