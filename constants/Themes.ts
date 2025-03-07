@@ -4,7 +4,7 @@ import Colors from '@/constants/Colors';
 
 const typography = {
   fontFamily: 'Montserrat',
-  titleFontWeight: '400', // or 'bold'
+  titleFontWeight: '400' as const, // or 'bold'
 };
 
 export const lightTheme = StyleSheet.create({
