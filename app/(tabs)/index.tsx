@@ -25,8 +25,10 @@ import DefaultAvatar from '@/components/DefaultAvatar';
 import SubmitTestResults from '@/components/SubmitTestResults';
 import { BlurView } from 'expo-blur';
 import { useStdis } from '@/hooks/useStdis';
+import { useTheme } from 'styled-components/native';
 
 export default function HomeScreen() {
+  const theme = useTheme();
   const { user, suuid, logout } = useAuth();
   const router = useRouter();
   const db = getFirestore(firebaseApp);
@@ -185,72 +187,105 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={theme.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" />
+          <ActivityIndicator size="large" color={theme.buttonPrimary.backgroundColor} />
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={theme.container}>
       {/* Fixed Header */}
       <View style={styles.headerContainer}>
         <View style={styles.profileInfo}>
           <View style={styles.nameContainer}>
-            <Text style={styles.displayName}>{profileData?.displayName}</Text>
-            <TouchableOpacity onPress={() => {
-              setNewDisplayName(profileData?.displayName);
-              setEditNameModalVisible(true);
-            }}>
-              <Text style={styles.editText}>Edit</Text>
+            <Text style={[styles.displayName, theme.title]}>
+              {profileData?.displayName}
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setNewDisplayName(profileData?.displayName);
+                setEditNameModalVisible(true);
+              }}>
+              <Text style={[styles.editText, { color: theme.buttonSecondary.backgroundColor }]}>
+                Edit
+              </Text>
             </TouchableOpacity>
           </View>
           <View style={styles.imageContainer}>
             {profileData?.imageUrl ? (
-              <Image source={{ uri: profileData.imageUrl }} style={styles.profileImage} />
+              <Image
+                source={{ uri: profileData.imageUrl }}
+                style={styles.profileImage}
+              />
             ) : (
               <DefaultAvatar size={150} />
             )}
-            <TouchableOpacity onPress={() => {
-              setNewPhotoUri(profileData?.imageUrl || '');
-              setEditPhotoModalVisible(true);
-            }}>
-              <Text style={styles.editText}>Edit Photo</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setNewPhotoUri(profileData?.imageUrl || '');
+                setEditPhotoModalVisible(true);
+              }}>
+              <Text style={[styles.editText, { color: theme.buttonSecondary.backgroundColor }]}>
+                Edit Photo
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
         <View style={styles.submitTestButtonFixed}>
-          <Button title="Submit Test Results" onPress={() => setSubmitTestModalVisible(true)} />
+          <Button
+            title="Submit Test Results"
+            color={theme.buttonPrimary.backgroundColor}
+            onPress={() => setSubmitTestModalVisible(true)}
+          />
         </View>
       </View>
-      
+
       {/* Scrollable Health Status Area */}
       <ScrollView contentContainerStyle={styles.healthStatusScroll}>
         <View style={styles.healthStatusContainer}>
-          <Text style={styles.healthStatusTitle}>Health Status</Text>
+          <Text style={[styles.healthStatusTitle, theme.title]}>
+            Health Status
+          </Text>
           {stdis.map((stdi) => {
             const hsData = healthStatuses[stdi.id];
-            const testResultText = hsData && typeof hsData.testResult === 'boolean'
-              ? (hsData.testResult ? 'Positive' : 'Negative')
-              : 'Not Tested';
-            const testDateText = hsData && hsData.testDate
-              ? new Date(hsData.testDate.seconds * 1000).toLocaleDateString()
-              : 'N/A';
-            const exposureStatusText = hsData && typeof hsData.exposureStatus === 'boolean'
-              ? (hsData.exposureStatus ? 'Exposed' : 'Not Exposed')
-              : 'Not Exposed';
-            const exposureDateText = hsData && hsData.exposureDate
-              ? new Date(hsData.exposureDate.seconds * 1000).toLocaleDateString()
-              : 'N/A';
+            const testResultText =
+              hsData && typeof hsData.testResult === 'boolean'
+                ? hsData.testResult
+                  ? 'Positive'
+                  : 'Negative'
+                : 'Not Tested';
+            const testDateText =
+              hsData && hsData.testDate
+                ? new Date(hsData.testDate.seconds * 1000).toLocaleDateString()
+                : 'N/A';
+            const exposureStatusText =
+              hsData && typeof hsData.exposureStatus === 'boolean'
+                ? hsData.exposureStatus
+                  ? 'Exposed'
+                  : 'Not Exposed'
+                : 'Not Exposed';
+            const exposureDateText =
+              hsData && hsData.exposureDate
+                ? new Date(hsData.exposureDate.seconds * 1000).toLocaleDateString()
+                : 'N/A';
             return (
               <View key={stdi.id} style={styles.healthStatusRow}>
                 <Text style={styles.healthStatusStd}>{stdi.id}</Text>
-                <Text style={styles.healthStatusText}>Result: {testResultText}</Text>
-                <Text style={styles.healthStatusText}>Test Date: {testDateText}</Text>
-                <Text style={styles.healthStatusText}>Exposure: {exposureStatusText}</Text>
-                <Text style={styles.healthStatusText}>Exposure Date: {exposureDateText}</Text>
+                <Text style={styles.healthStatusText}>
+                  Result: {testResultText}
+                </Text>
+                <Text style={styles.healthStatusText}>
+                  Test Date: {testDateText}
+                </Text>
+                <Text style={styles.healthStatusText}>
+                  Exposure: {exposureStatusText}
+                </Text>
+                <Text style={styles.healthStatusText}>
+                  Exposure Date: {exposureDateText}
+                </Text>
               </View>
             );
           })}
@@ -258,8 +293,16 @@ export default function HomeScreen() {
       </ScrollView>
 
       {/* Logout Button in Top Right */}
-      <View style={[styles.logoutButtonContainer, { top: insets.top + 10, right: 10, position: 'absolute' }]}>
-        <Button title="Logout" onPress={handleLogout} />
+      <View
+        style={[
+          styles.logoutButtonContainer,
+          { top: insets.top + 10, right: 10, position: 'absolute' },
+        ]}>
+        <Button
+          title="Logout"
+          color={theme.buttonPrimary.backgroundColor}
+          onPress={handleLogout}
+        />
       </View>
 
       {/* Modals */}
@@ -286,7 +329,10 @@ export default function HomeScreen() {
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Edit Profile Photo</Text>
             {newPhotoUri ? (
-              <Image source={{ uri: newPhotoUri }} style={styles.modalPreviewImage} />
+              <Image
+                source={{ uri: newPhotoUri }}
+                style={styles.modalPreviewImage}
+              />
             ) : (
               <DefaultAvatar size={150} />
             )}
@@ -305,10 +351,12 @@ export default function HomeScreen() {
 
       <Modal visible={submitTestModalVisible} transparent animationType="slide">
         <BlurView intensity={50} style={styles.modalBackground}>
-          <SubmitTestResults onClose={() => {
-            setSubmitTestModalVisible(false);
-            refreshHealthStatuses(); // Refresh health statuses after submitting.
-          }} />
+          <SubmitTestResults
+            onClose={() => {
+              setSubmitTestModalVisible(false);
+              refreshHealthStatuses(); // Refresh health statuses after submitting.
+            }}
+          />
         </BlurView>
       </Modal>
     </SafeAreaView>
@@ -317,13 +365,14 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   safeArea: {
+    // Removed hardcoded background in favor of global theme (theme.container supplies it)
     flex: 1,
-    backgroundColor: '#fff',
   },
   headerContainer: {
     width: '100%',
     paddingHorizontal: 20,
     paddingTop: 10,
+    // Optionally remove backgroundColor if your theme provides one
     backgroundColor: '#fff',
   },
   profileInfo: {
@@ -340,7 +389,7 @@ const styles = StyleSheet.create({
   },
   editText: {
     fontSize: 16,
-    color: '#007AFF',
+    // Color set inline using theme.buttonSecondary.backgroundColor
   },
   imageContainer: {
     alignItems: 'center',

@@ -16,8 +16,10 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { firebaseApp } from '@/src/firebase/config';
 import { useAuth } from '@/src/context/AuthContext';
 import { computePSUUIDFromSUUID } from '@/src/utils/hash';
+import { useTheme } from 'styled-components/native';
 
 export default function ProfileSetup() {
+  const theme = useTheme();
   const [displayName, setDisplayName] = useState('');
   const [imageUri, setImageUri] = useState<string>('');
   const [uploading, setUploading] = useState(false);
@@ -81,7 +83,6 @@ export default function ProfileSetup() {
       // If an image is selected, upload it to Firebase Storage.
       if (imageUri) {
         const blob = await uriToBlob(imageUri);
-        // Create a reference: you might store in a folder "profileImages"
         const storageRef = ref(storage, `profileImages/${psuuid}.jpg`);
         await uploadBytes(storageRef, blob);
         imageUrl = await getDownloadURL(storageRef);
@@ -103,8 +104,8 @@ export default function ProfileSetup() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Set Up Your Public Profile</Text>
+    <View style={[styles.container, theme.container]}>
+      <Text style={[styles.title, theme.title]}>Set Up Your Public Profile</Text>
       <TextInput
         style={styles.input}
         placeholder="Display Name"
@@ -112,8 +113,16 @@ export default function ProfileSetup() {
         onChangeText={setDisplayName}
       />
       <View style={styles.buttonRow}>
-        <Button title="Choose from Gallery" onPress={pickImageFromGallery} />
-        <Button title="Take Photo" onPress={takePhoto} />
+        <Button
+          title="Choose from Gallery"
+          onPress={pickImageFromGallery}
+          color={theme.buttonPrimary.backgroundColor}
+        />
+        <Button
+          title="Take Photo"
+          onPress={takePhoto}
+          color={theme.buttonPrimary.backgroundColor}
+        />
       </View>
       {imageUri ? (
         <Image source={{ uri: imageUri }} style={styles.previewImage} />
@@ -124,6 +133,7 @@ export default function ProfileSetup() {
         title={uploading ? 'Uploading...' : 'Create Profile'}
         onPress={handleProfileSetup}
         disabled={uploading}
+        color={theme.buttonPrimary.backgroundColor}
       />
     </View>
   );
@@ -143,7 +153,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#ccc', // Consider updating this with a theme value later.
     padding: 12,
     marginBottom: 20,
     borderRadius: 5,

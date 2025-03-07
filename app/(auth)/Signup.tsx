@@ -1,10 +1,11 @@
-// app/(auth)/Signup.tsx
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
 import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
+import { useTheme } from 'styled-components/native';
 
 export default function SignupScreen() {
+  const theme = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -28,7 +29,6 @@ export default function SignupScreen() {
     }
     try {
       await signUp(email, password);
-      // After sign up, display an alert instructing the user to check their email.
       Alert.alert(
         'Verification Email Sent',
         'A verification email has been sent to your email address. Please verify your email before logging in.',
@@ -36,9 +36,7 @@ export default function SignupScreen() {
           {
             text: 'OK',
             onPress: async () => {
-              // Sign the user out so that they must log in from the LoginScreen.
               await logout();
-              // Redirect to LoginScreen.
               router.replace('/Login');
             },
           },
@@ -50,8 +48,8 @@ export default function SignupScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Sign Up</Text>
+    <View style={[styles.container, theme.container]}>
+      <Text style={[styles.title, theme.title]}>Sign Up</Text>
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -74,10 +72,18 @@ export default function SignupScreen() {
         onChangeText={setConfirmPassword}
         secureTextEntry
       />
-      <Button title="Sign Up" onPress={handleSignup} />
+      <Button 
+        title="Sign Up" 
+        onPress={handleSignup} 
+        color={theme.buttonPrimary.backgroundColor}
+      />
       <View style={styles.toggleContainer}>
         <Text>Already have an account?</Text>
-        <Button title="Go to Login" onPress={() => router.replace('/Login')} />
+        <Button 
+          title="Go to Login" 
+          onPress={() => router.replace('/Login')}
+          color={theme.buttonSecondary.backgroundColor}
+        />
       </View>
     </View>
   );
@@ -96,7 +102,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#ccc', // Can be updated to a theme color later.
     padding: 10,
     marginBottom: 10,
     borderRadius: 5,

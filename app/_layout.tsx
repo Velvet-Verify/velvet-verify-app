@@ -2,6 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import { Slot, useRouter } from 'expo-router';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ThemeProvider } from 'styled-components/native';
+import Themes from '@/constants/Themes';
 
 function AuthRedirect() {
   const { user } = useAuth();
@@ -27,8 +30,12 @@ function AuthRedirect() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <AuthRedirect />
-      <Slot />
+      <SafeAreaProvider>
+        <ThemeProvider theme={Themes.light}>
+          <AuthRedirect />
+          <Slot />
+        </ThemeProvider>
+      </SafeAreaProvider>
     </AuthProvider>
   );
 }

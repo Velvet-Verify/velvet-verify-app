@@ -17,6 +17,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { computeHSUUIDFromSUUID, computeTSUUIDFromSUUID } from '@/src/utils/hash';
 import { useStdis } from '@/hooks/useStdis';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from 'styled-components/native';
 
 type TestResultOption = 'positive' | 'negative' | 'notTested';
 
@@ -25,6 +26,7 @@ type SubmitTestResultsProps = {
 };
 
 export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
+  const theme = useTheme();
   const { user, suuid } = useAuth();
   const router = useRouter();
   const db = getFirestore(firebaseApp);
@@ -35,7 +37,7 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
   const [results, setResults] = useState<{ [key: string]: TestResultOption }>({});
   const [submitting, setSubmitting] = useState(false);
 
-  // Initialize results to "notTested" for each STDI when stdis load.
+  // Initialize results to "notTested" for each STDI when STDIs load.
   useEffect(() => {
     if (!stdisLoading && stdis.length > 0) {
       const initialResults: { [key: string]: TestResultOption } = {};
@@ -69,18 +71,15 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
         });
         // Now update healthStatus for this STDI:
         const hsUUID = await computeHSUUIDFromSUUID(suuid);
-        // Construct composite ID, e.g., "hsUUID_stdiID"
         const hsDocId = `${hsUUID}_${stdi.id}`;
         const hsDocRef = doc(db, 'healthStatus', hsDocId);
         const hsDocSnap = await getDoc(hsDocRef);
         if (!hsDocSnap.exists()) {
-          // Create a new document
           await setDoc(hsDocRef, {
             testResult: booleanResult,
             testDate: testDate,
           });
         } else {
-          // If the document exists, update only if new testDate is later.
           const currentTestDate = hsDocSnap.data().testDate.toDate();
           if (testDate > currentTestDate) {
             await updateDoc(hsDocRef, {
@@ -102,18 +101,18 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
 
   if (stdisLoading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={theme.container}>
         <View style={styles.loadingContainer}>
-          <Text>Loading STDIs...</Text>
+          <Text style={[styles.title, theme.title]}>Loading STDIs...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={theme.container}>
       <View style={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
-        <Text style={styles.title}>Submit Test Results</Text>
+        <Text style={[styles.title, theme.title]}>Submit Test Results</Text>
         <Text style={styles.label}>Test Date:</Text>
         <DateTimePicker
           value={testDate}
@@ -131,50 +130,7 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
             <View style={styles.itemRow}>
               <Text style={styles.itemText}>{item.id}</Text>
               <View style={styles.optionContainer}>
-                <TouchableOpacity
-                  onPress={() =>
-                    setResults((prev) => ({ ...prev, [item.id]: 'positive' }))
-                  }
-                  style={[
-                    styles.optionButton,
-                    results[item.id] === 'positive'
-                      ? styles.selectedOption
-                      : styles.unselectedOption,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      results[item.id] === 'positive'
-                        ? styles.selectedText
-                        : styles.unselectedText,
-                    ]}
-                  >
-                    +
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() =>
-                    setResults((prev) => ({ ...prev, [item.id]: 'notTested' }))
-                  }
-                  style={[
-                    styles.optionButton,
-                    results[item.id] === 'notTested'
-                      ? styles.selectedOption
-                      : styles.unselectedOption,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.optionText,
-                      results[item.id] === 'notTested'
-                        ? styles.selectedText
-                        : styles.unselectedText,
-                    ]}
-                  >
-                    ○
-                  </Text>
-                </TouchableOpacity>
+                {/* Negative option on the left */}
                 <TouchableOpacity
                   onPress={() =>
                     setResults((prev) => ({ ...prev, [item.id]: 'negative' }))
@@ -182,7 +138,7 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
                   style={[
                     styles.optionButton,
                     results[item.id] === 'negative'
-                      ? styles.selectedOption
+                      ? styles.negativeSelected
                       : styles.unselectedOption,
                   ]}
                 >
@@ -197,13 +153,68 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
                     –
                   </Text>
                 </TouchableOpacity>
+                {/* Not Tested in the middle */}
+                <TouchableOpacity
+                  onPress={() =>
+                    setResults((prev) => ({ ...prev, [item.id]: 'notTested' }))
+                  }
+                  style={[
+                    styles.optionButton,
+                    results[item.id] === 'notTested'
+                      ? styles.notTestedSelected
+                      : styles.unselectedOption,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.optionText,
+                      results[item.id] === 'notTested'
+                        ? styles.selectedText
+                        : styles.unselectedText,
+                    ]}
+                  >
+                    ○
+                  </Text>
+                </TouchableOpacity>
+                {/* Positive option on the right */}
+                <TouchableOpacity
+                  onPress={() =>
+                    setResults((prev) => ({ ...prev, [item.id]: 'positive' }))
+                  }
+                  style={[
+                    styles.optionButton,
+                    results[item.id] === 'positive'
+                      ? styles.positiveSelected
+                      : styles.unselectedOption,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.optionText,
+                      results[item.id] === 'positive'
+                        ? styles.selectedText
+                        : styles.unselectedText,
+                    ]}
+                  >
+                    +
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           )}
         />
         <View style={styles.buttonRow}>
-          <Button title="Cancel" onPress={onClose} />
-          <Button title={submitting ? 'Submitting...' : 'Submit'} onPress={handleSubmit} disabled={submitting} />
+          <Button
+            title="Cancel"
+            onPress={onClose}
+            color={theme.buttonSecondary.backgroundColor}
+          />
+          <Button
+            title={submitting ? 'Submitting...' : 'Submit'}
+            onPress={handleSubmit}
+            disabled={submitting}
+            color={theme.buttonPrimary.backgroundColor}
+          />
         </View>
       </View>
     </SafeAreaView>
@@ -257,9 +268,18 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     borderWidth: 1,
   },
-  selectedOption: {
-    backgroundColor: 'blue',
-    borderColor: 'blue',
+  // New selected styles for each option:
+  negativeSelected: {
+    backgroundColor: 'green',
+    borderColor: 'green',
+  },
+  positiveSelected: {
+    backgroundColor: 'red',
+    borderColor: 'red',
+  },
+  notTestedSelected: {
+    backgroundColor: 'gray',
+    borderColor: 'gray',
   },
   unselectedOption: {
     backgroundColor: 'white',
@@ -274,11 +294,6 @@ const styles = StyleSheet.create({
   },
   unselectedText: {
     color: 'gray',
-  },
-  buttonGroup: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flex: 1,
   },
   buttonRow: {
     flexDirection: 'row',

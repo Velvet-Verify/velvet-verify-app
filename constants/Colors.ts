@@ -1,26 +1,28 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+// constants/Colors.ts
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
+    primary: '#800020',         // For headings and accent elements
+    text: '#444444',            // Subtle charcoal text
+    background: '#ffffff',      // White background
+    buttonPrimary: '#DC143C',   // Crimson for primary buttons
+    buttonSecondary: '#d3d3d3',  // Light gray for secondary buttons
+    tint: '#800020',            // For tinting icons or links (using primary)
     icon: '#687076',
     tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
+    tabIconSelected: '#800020',
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
+    primary: '#800020',         // Retain primary for headings (if contrast is acceptable)
+    text: '#ECEDEE',            // Light text for dark mode
+    background: '#151718',      // Dark background
+    buttonPrimary: '#DC143C',   // Crimson remains for primary buttons
+    buttonSecondary: '#888888',  // Darker gray for secondary buttons on dark background
+    tint: '#ffffff',            // White tint for icons/links
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
+    tabIconSelected: '#ffffff',
   },
 };
+
+export default Colors;
