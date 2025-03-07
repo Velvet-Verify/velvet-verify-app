@@ -2,9 +2,9 @@
 import * as Crypto from 'expo-crypto';
 import Constants from 'expo-constants';
 
-const { standardHashKey, profileHashKey } = Constants.expoConfig?.extra || {};
+const { standardHashKey, profileHashKey, healthHashKey, testHashKey } = Constants.expoConfig?.extra || {};
 
-// Compute the Standard Hash UID (SUUID) once from the raw UID.
+// Existing functions:
 export async function computeSUUID(rawUID: string): Promise<string> {
   return await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
@@ -12,10 +12,24 @@ export async function computeSUUID(rawUID: string): Promise<string> {
   );
 }
 
-// Compute the Profile-specific UID (PSUUID) from the SUUID.
 export async function computePSUUIDFromSUUID(suuid: string): Promise<string> {
   return await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
     suuid + profileHashKey
+  );
+}
+
+// New functions:
+export async function computeHSUUIDFromSUUID(suuid: string): Promise<string> {
+  return await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    suuid + healthHashKey
+  );
+}
+
+export async function computeTSUUIDFromSUUID(suuid: string): Promise<string> {
+  return await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    suuid + testHashKey
   );
 }

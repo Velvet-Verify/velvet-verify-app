@@ -10,7 +10,9 @@ export default ({ config }) => {
       firebaseMessagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
       firebaseAppId: process.env.FIREBASE_APP_ID,
       standardHashKey: process.env.STANDARD_HASH_KEY,
-      profileHashKey: process.env.PROFILE_HASH_KEY
+      profileHashKey: process.env.PROFILE_HASH_KEY,
+      testHashKey: process.env.TEST_HASH_KEY,
+      healthHashKey: process.env.HEALTH_HASH_KEY,
     },
   };
 };
