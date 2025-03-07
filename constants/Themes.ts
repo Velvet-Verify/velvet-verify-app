@@ -8,13 +8,12 @@ const typography = {
 };
 
 export const lightTheme = StyleSheet.create({
-  // Basic container
+  // Basic containers
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
     padding: 20,
   },
-  // A container that also centers content
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -22,7 +21,7 @@ export const lightTheme = StyleSheet.create({
     backgroundColor: Colors.light.background,
   },
 
-  // Titles
+  // Text styles
   title: {
     fontSize: 24,
     fontFamily: typography.fontFamily,
@@ -31,15 +30,13 @@ export const lightTheme = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-
-  // Body text (if needed)
   bodyText: {
     fontSize: 16,
     fontFamily: typography.fontFamily,
     color: Colors.light.text,
   },
 
-  // Inputs
+  // Input field
   input: {
     borderWidth: 1,
     borderColor: Colors.light.border,
@@ -48,7 +45,7 @@ export const lightTheme = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // Buttons
+  // Button styles (for wrapping in a reusable button component)
   buttonPrimary: {
     backgroundColor: Colors.light.buttonPrimary,
     padding: 10,
@@ -60,7 +57,34 @@ export const lightTheme = StyleSheet.create({
     borderRadius: 5,
   },
 
-  // Common modal styles
+  // Common layout
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+
+  // Preview image/text for ProfileSetup etc.
+  previewImage: {
+    width: 150,
+    height: 150,
+    alignSelf: 'center',
+    marginBottom: 20,
+    borderRadius: 75,
+  },
+  previewText: {
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#888',
+  },
+
+  // Modal styles
   modalBackground: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.2)',
@@ -123,6 +147,29 @@ export const darkTheme = StyleSheet.create({
     backgroundColor: Colors.dark.buttonSecondary,
     padding: 10,
     borderRadius: 5,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 20,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  previewImage: {
+    width: 150,
+    height: 150,
+    alignSelf: 'center',
+    marginBottom: 20,
+    borderRadius: 75,
+  },
+  previewText: {
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#888',
   },
   modalBackground: {
     flex: 1,
