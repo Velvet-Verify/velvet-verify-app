@@ -1,47 +1,61 @@
 // components/ui/HealthStatusArea.tsx
 import React from 'react';
-import { FlatList, View, Text } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { HealthStatusCard } from './HealthStatusCard';
 import { useTheme } from 'styled-components/native';
+
+type STI = { id: string; name?: string };
 
 type HealthStatus = {
   id: string;
   testResult?: boolean;
-  testDate?: string;
+  testDate?: any;
   exposureStatus?: boolean;
-  exposureDate?: string;
+  exposureDate?: any;
 };
 
 type HealthStatusAreaProps = {
-  statuses: HealthStatus[];
+  stdis: STI[];
+  statuses: { [key: string]: HealthStatus } | null;
 };
 
-export function HealthStatusArea({ statuses }: HealthStatusAreaProps) {
+export function HealthStatusArea({ stdis, statuses }: HealthStatusAreaProps) {
   const theme = useTheme();
-  if (statuses.length === 0) {
-    return <Text>No health statuses available.</Text>;
-  }
-  return (
-    <FlatList
-      data={statuses}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => {
-        // Format dates assuming item.testDate and item.exposureDate are ISO strings or numbers.
-        const testDate = item.testDate ? new Date(item.testDate).toLocaleDateString() : 'N/A';
-        const exposureDate = item.exposureDate ? new Date(item.exposureDate).toLocaleDateString() : 'N/A';
-        const testResult = typeof item.testResult === 'boolean' ? (item.testResult ? 'Positive' : 'Negative') : 'Not Tested';
-        const exposure = typeof item.exposureStatus === 'boolean' ? (item.exposureStatus ? 'Exposed' : 'Not Exposed') : 'Not Exposed';
 
-        return (
-          <HealthStatusCard
-            sti={item.id}
-            testResult={testResult}
-            testDate={testDate}
-            exposure={exposure}
-            exposureDate={exposureDate}
-          />
-        );
-      }}
-    />
+  if (!stdis || stdis.length === 0) {
+    return <Text>No STDIs available.</Text>;
+  }
+
+  return (
+    <View style={{ width: '100%' }}>
+      <FlatList
+        data={stdis}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => {
+          // Get corresponding status; default if missing.
+          const status = statuses && statuses[item.id] ? statuses[item.id] : {};
+          const testResult =
+            typeof status.testResult === 'boolean'
+              ? (status.testResult ? 'Positive' : 'Negative')
+              : 'Not Tested';
+          const testDate = status.testDate ? status.testDate : null;
+          const exposure =
+            typeof status.exposureStatus === 'boolean'
+              ? (status.exposureStatus ? 'Exposed' : 'Not Exposed')
+              : 'Not Exposed';
+          const exposureDate = status.exposureStatus ? status.exposureDate : null;
+
+          return (
+            <HealthStatusCard
+              name={item.name || item.id}
+              testResult={testResult}
+              testDate={testDate}
+              exposure={exposure}
+              exposureDate={exposureDate}
+            />
+          );
+        }}
+      />
+    </View>
   );
 }

@@ -1,7 +1,7 @@
 // app/(tabs)/index.tsx
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, Alert, ScrollView, Button, TextInput } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Button, Image, SafeAreaView, Text, View, TextInput } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -27,7 +27,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
-  const [healthStatuses, setHealthStatuses] = useState<any[]>([]);
+  const [healthStatuses, setHealthStatuses] = useState<{ [key: string]: any } | null>(null);
 
   // Modal states
   const [editNameModalVisible, setEditNameModalVisible] = useState(false);
@@ -56,7 +56,7 @@ export default function HomeScreen() {
     loadProfile();
   }, [user, suuid, db, router]);
 
-  // Function to refresh health statuses for each STDI
+  // Refresh health statuses for each STDI
   const refreshHealthStatuses = async () => {
     if (user && suuid && stdis && stdis.length > 0) {
       const hsUUID = await computeHSUUIDFromSUUID(suuid);
@@ -71,13 +71,11 @@ export default function HomeScreen() {
           }
         })
       );
-      // Convert object to array for HealthStatusArea
-      const statuses = Object.keys(hsData).map(key => ({ id: key, ...hsData[key] }));
-      setHealthStatuses(statuses);
+      setHealthStatuses(hsData);
     }
   };
 
-  // Load health statuses when STDIs change
+  // Refresh health statuses when STDIs change
   useEffect(() => {
     refreshHealthStatuses();
   }, [user, suuid, stdis, db]);
@@ -214,9 +212,9 @@ export default function HomeScreen() {
       </View>
 
       {/* Health Status Area */}
-      <View style={{ padding: 20, alignItems: 'center', flex: 1 }}>
+      <View style={{ padding: 20, alignItems: 'center', flex: 1, paddingBottom: insets.bottom + 75 }}>
         <Text style={theme.title}>Health Status</Text>
-        <HealthStatusArea statuses={healthStatuses} />
+        <HealthStatusArea stdis={stdis} statuses={healthStatuses} />
       </View>
 
       {/* Logout Button positioned at top right */}
