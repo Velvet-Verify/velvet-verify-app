@@ -16,7 +16,6 @@ import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
 import { ProfileHeader } from '@/components/ui/ProfileHeader';
 import { HealthStatusArea } from '@/components/ui/HealthStatusArea';
-import { ThemedButton } from '@/components/ui/ThemedButton';
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -188,7 +187,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={theme.container}>
-      {/* Profile Header */}
+      {/* Profile Header includes the submit test results button */}
       <ProfileHeader
         displayName={profileData?.displayName}
         imageUrl={profileData?.imageUrl}
@@ -200,16 +199,8 @@ export default function HomeScreen() {
           setNewPhotoUri(profileData?.imageUrl || '');
           setEditPhotoModalVisible(true);
         }}
+        onSubmitTest={() => setSubmitTestModalVisible(true)}
       />
-
-      {/* Submit Test Results Button */}
-      <View style={{ marginVertical: 10, alignSelf: 'center' }}>
-        <Button
-          title="Submit Test Results"
-          color={theme.buttonPrimary.backgroundColor}
-          onPress={() => setSubmitTestModalVisible(true)}
-        />
-      </View>
 
       {/* Health Status Area */}
       <View style={{ padding: 20, alignItems: 'center', flex: 1, paddingBottom: insets.bottom + 75 }}>
@@ -236,8 +227,8 @@ export default function HomeScreen() {
           placeholder="Enter new display name"
         />
         <View style={theme.buttonRow}>
-          <ThemedButton title="Cancel" variant="secondary" onPress={() => setEditNameModalVisible(false)} />
-          <ThemedButton title="Save" onPress={handleUpdateDisplayName} />
+          <Button title="Cancel" onPress={() => setEditNameModalVisible(false)} color={theme.buttonSecondary.backgroundColor} />
+          <Button title="Save" onPress={handleUpdateDisplayName} color={theme.buttonPrimary.backgroundColor} />
         </View>
       </ThemedModal>
 
@@ -249,13 +240,13 @@ export default function HomeScreen() {
           <DefaultAvatar size={150} />
         )}
         <View style={theme.buttonRow}>
-          <ThemedButton title="Gallery" variant="primary" onPress={pickImageFromGallery} />
-          <ThemedButton title="Camera" variant="primary" onPress={takePhoto} />
-          <ThemedButton title="Remove" variant="primary" onPress={removePhoto} />
+          <Button title="Gallery" onPress={pickImageFromGallery} color={theme.buttonPrimary.backgroundColor} />
+          <Button title="Camera" onPress={takePhoto} color={theme.buttonPrimary.backgroundColor} />
+          <Button title="Remove" onPress={removePhoto} color={theme.buttonPrimary.backgroundColor} />
         </View>
         <View style={theme.buttonRow}>
-          <ThemedButton title="Cancel" variant="secondary" onPress={() => setEditPhotoModalVisible(false)} />
-          <ThemedButton title="Save" onPress={handleUpdatePhoto} />
+          <Button title="Cancel" onPress={() => setEditPhotoModalVisible(false)} color={theme.buttonSecondary.backgroundColor} />
+          <Button title="Save" onPress={handleUpdatePhoto} color={theme.buttonPrimary.backgroundColor} />
         </View>
       </ThemedModal>
 

@@ -105,7 +105,7 @@ export const lightTheme = StyleSheet.create({
     color: Colors.light.text,
   },
 
-  // New: Profile header for the home screen
+  // Profile Header Styles
   profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -117,7 +117,10 @@ export const lightTheme = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    marginRight: 10,
+  },
+  profileTextContainer: {
+    flex: 1,
+    marginLeft: 10,
   },
   profileName: {
     fontSize: 24,
@@ -125,9 +128,18 @@ export const lightTheme = StyleSheet.create({
     fontWeight: typography.titleFontWeight,
     color: Colors.light.primary,
   },
-  editButtonText: {
-    fontSize: 16,
+  profileHeaderLinksRow: {
+    flexDirection: 'row',
+    marginTop: 5,
+  },
+  profileHeaderLink: {
+    fontSize: 14,
     color: Colors.light.buttonSecondary,
+    marginRight: 10,
+  },
+  profileHeaderSubmitLink: {
+    fontSize: 14,
+    color: Colors.light.buttonPrimary, // red-ish tone
   },
 
   // New: Health status area
@@ -245,13 +257,29 @@ export const darkTheme = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    marginRight: 10,
+  },
+  profileTextContainer: {
+    flex: 1,
+    marginLeft: 10,
   },
   profileName: {
     fontSize: 24,
     fontFamily: typography.fontFamily,
     fontWeight: typography.titleFontWeight,
     color: Colors.dark.primary,
+  },
+  profileHeaderLinksRow: {
+    flexDirection: 'row',
+    marginTop: 5,
+  },
+  profileHeaderLink: {
+    fontSize: 14,
+    color: Colors.dark.buttonSecondary,
+    marginRight: 10,
+  },
+  profileHeaderSubmitLink: {
+    fontSize: 14,
+    color: Colors.dark.buttonPrimary,
   },
   editButtonText: {
     fontSize: 16,

@@ -54,11 +54,11 @@ export function HealthStatusCard({ name, testResult, testDate, exposure, exposur
 
 const styles = StyleSheet.create({
   card: {
-    width: '98%',
     paddingVertical: 5,
     borderBottomWidth: 1,
     borderColor: '#eee',
     marginVertical: 5,
+    marginRight: 15,
   },
   headerRow: {
     flexDirection: 'row',
