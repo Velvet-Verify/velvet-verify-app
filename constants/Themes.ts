@@ -45,7 +45,7 @@ export const lightTheme = StyleSheet.create({
     marginBottom: 10,
   },
 
-  // Button styles (for wrapping in a reusable button component)
+  // Button styles
   buttonPrimary: {
     backgroundColor: Colors.light.buttonPrimary,
     padding: 10,
@@ -57,7 +57,7 @@ export const lightTheme = StyleSheet.create({
     borderRadius: 5,
   },
 
-  // Common layout
+  // Layout helpers
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -70,7 +70,7 @@ export const lightTheme = StyleSheet.create({
     marginVertical: 10,
   },
 
-  // Preview image/text for ProfileSetup etc.
+  // Preview (used in ProfileSetup, etc.)
   previewImage: {
     width: 150,
     height: 150,
@@ -104,6 +104,50 @@ export const lightTheme = StyleSheet.create({
     textAlign: 'center',
     color: Colors.light.text,
   },
+
+  // New: Profile header for the home screen
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginRight: 10,
+  },
+  profileName: {
+    fontSize: 24,
+    fontFamily: typography.fontFamily,
+    fontWeight: typography.titleFontWeight,
+    color: Colors.light.primary,
+  },
+  editButtonText: {
+    fontSize: 16,
+    color: Colors.light.buttonSecondary,
+  },
+
+  // New: Health status area
+  healthStatusContainer: {
+    width: '100%',
+    marginVertical: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    borderRadius: 8,
+  },
+  healthStatusTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+    color: Colors.light.primary,
+  },
+  // HealthStatusCard will be styled in its own component,
+  // but you can add a common container style here if needed.
 });
 
 export const darkTheme = StyleSheet.create({
@@ -189,6 +233,44 @@ export const darkTheme = StyleSheet.create({
     marginBottom: 20,
     textAlign: 'center',
     color: Colors.dark.text,
+  },
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.dark.border,
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginRight: 10,
+  },
+  profileName: {
+    fontSize: 24,
+    fontFamily: typography.fontFamily,
+    fontWeight: typography.titleFontWeight,
+    color: Colors.dark.primary,
+  },
+  editButtonText: {
+    fontSize: 16,
+    color: Colors.dark.buttonSecondary,
+  },
+  healthStatusContainer: {
+    width: '100%',
+    marginVertical: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    borderRadius: 8,
+  },
+  healthStatusTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+    color: Colors.dark.primary,
   },
 });
 

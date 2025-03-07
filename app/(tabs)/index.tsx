@@ -1,18 +1,6 @@
 // app/(tabs)/index.tsx
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  ActivityIndicator,
-  StyleSheet,
-  Button,
-  Image,
-  Modal,
-  TextInput,
-  Alert,
-  TouchableOpacity,
-  ScrollView,
-} from 'react-native';
+import { View, Text, ActivityIndicator, Alert, ScrollView, Button, TextInput } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
@@ -23,10 +11,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import DefaultAvatar from '@/components/DefaultAvatar';
 import SubmitTestResults from '@/components/SubmitTestResults';
-import { BlurView } from 'expo-blur';
 import { useStdis } from '@/hooks/useStdis';
 import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
+import { ProfileHeader } from '@/components/ui/ProfileHeader';
+import { HealthStatusArea } from '@/components/ui/HealthStatusArea';
+import { ThemedButton } from '@/components/ui/ThemedButton';
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -37,7 +27,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
-  const [healthStatuses, setHealthStatuses] = useState<{ [key: string]: any }>({});
+  const [healthStatuses, setHealthStatuses] = useState<any[]>([]);
 
   // Modal states
   const [editNameModalVisible, setEditNameModalVisible] = useState(false);
@@ -81,11 +71,13 @@ export default function HomeScreen() {
           }
         })
       );
-      setHealthStatuses(hsData);
+      // Convert object to array for HealthStatusArea
+      const statuses = Object.keys(hsData).map(key => ({ id: key, ...hsData[key] }));
+      setHealthStatuses(statuses);
     }
   };
 
-  // Load healthStatus for each STDI when STDIs change
+  // Load health statuses when STDIs change
   useEffect(() => {
     refreshHealthStatuses();
   }, [user, suuid, stdis, db]);
@@ -189,7 +181,7 @@ export default function HomeScreen() {
   if (loading) {
     return (
       <SafeAreaView style={theme.container}>
-        <View style={styles.loadingContainer}>
+        <View style={{ justifyContent: 'center', alignItems: 'center', padding: 20 }}>
           <ActivityIndicator size="large" color={theme.buttonPrimary.backgroundColor} />
         </View>
       </SafeAreaView>
@@ -198,107 +190,37 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={theme.container}>
-      {/* Fixed Header */}
-      <View style={styles.headerContainer}>
-        <View style={styles.profileInfo}>
-          <View style={styles.nameContainer}>
-            <Text style={[styles.displayName, theme.title]}>
-              {profileData?.displayName}
-            </Text>
-            <TouchableOpacity
-              onPress={() => {
-                setNewDisplayName(profileData?.displayName);
-                setEditNameModalVisible(true);
-              }}>
-              <Text style={[styles.editText, { color: theme.buttonSecondary.backgroundColor }]}>
-                Edit
-              </Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.imageContainer}>
-            {profileData?.imageUrl ? (
-              <Image
-                source={{ uri: profileData.imageUrl }}
-                style={styles.profileImage}
-              />
-            ) : (
-              <DefaultAvatar size={150} />
-            )}
-            <TouchableOpacity
-              onPress={() => {
-                setNewPhotoUri(profileData?.imageUrl || '');
-                setEditPhotoModalVisible(true);
-              }}>
-              <Text style={[styles.editText, { color: theme.buttonSecondary.backgroundColor }]}>
-                Edit Photo
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        <View style={styles.submitTestButtonFixed}>
-          <Button
-            title="Submit Test Results"
-            color={theme.buttonPrimary.backgroundColor}
-            onPress={() => setSubmitTestModalVisible(true)}
-          />
-        </View>
+      {/* Profile Header */}
+      <ProfileHeader
+        displayName={profileData?.displayName}
+        imageUrl={profileData?.imageUrl}
+        onEditName={() => {
+          setNewDisplayName(profileData?.displayName);
+          setEditNameModalVisible(true);
+        }}
+        onEditPhoto={() => {
+          setNewPhotoUri(profileData?.imageUrl || '');
+          setEditPhotoModalVisible(true);
+        }}
+      />
+
+      {/* Submit Test Results Button */}
+      <View style={{ marginVertical: 10, alignSelf: 'center' }}>
+        <Button
+          title="Submit Test Results"
+          color={theme.buttonPrimary.backgroundColor}
+          onPress={() => setSubmitTestModalVisible(true)}
+        />
       </View>
 
-      {/* Scrollable Health Status Area */}
-      <ScrollView contentContainerStyle={styles.healthStatusScroll}>
-        <View style={styles.healthStatusContainer}>
-          <Text style={[styles.healthStatusTitle, theme.title]}>
-            Health Status
-          </Text>
-          {stdis.map((stdi) => {
-            const hsData = healthStatuses[stdi.id];
-            const testResultText =
-              hsData && typeof hsData.testResult === 'boolean'
-                ? hsData.testResult
-                  ? 'Positive'
-                  : 'Negative'
-                : 'Not Tested';
-            const testDateText =
-              hsData && hsData.testDate
-                ? new Date(hsData.testDate.seconds * 1000).toLocaleDateString()
-                : 'N/A';
-            const exposureStatusText =
-              hsData && typeof hsData.exposureStatus === 'boolean'
-                ? hsData.exposureStatus
-                  ? 'Exposed'
-                  : 'Not Exposed'
-                : 'Not Exposed';
-            const exposureDateText =
-              hsData && hsData.exposureDate
-                ? new Date(hsData.exposureDate.seconds * 1000).toLocaleDateString()
-                : 'N/A';
-            return (
-              <View key={stdi.id} style={styles.healthStatusRow}>
-                <Text style={styles.healthStatusStd}>{stdi.id}</Text>
-                <Text style={styles.healthStatusText}>
-                  Result: {testResultText}
-                </Text>
-                <Text style={styles.healthStatusText}>
-                  Test Date: {testDateText}
-                </Text>
-                <Text style={styles.healthStatusText}>
-                  Exposure: {exposureStatusText}
-                </Text>
-                <Text style={styles.healthStatusText}>
-                  Exposure Date: {exposureDateText}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      </ScrollView>
+      {/* Health Status Area */}
+      <View style={{ padding: 20, alignItems: 'center', flex: 1 }}>
+        <Text style={theme.title}>Health Status</Text>
+        <HealthStatusArea statuses={healthStatuses} />
+      </View>
 
-      {/* Logout Button in Top Right */}
-      <View
-        style={[
-          styles.logoutButtonContainer,
-          { top: insets.top + 10, right: 10, position: 'absolute' },
-        ]}>
+      {/* Logout Button positioned at top right */}
+      <View style={{ position: 'absolute', top: insets.top + 10, right: 10 }}>
         <Button
           title="Logout"
           color={theme.buttonPrimary.backgroundColor}
@@ -307,159 +229,44 @@ export default function HomeScreen() {
       </View>
 
       {/* Modals */}
-      <ThemedModal
-        visible={editNameModalVisible}
-        onRequestClose={() => setEditNameModalVisible(false)}
-      >
+      <ThemedModal visible={editNameModalVisible} onRequestClose={() => setEditNameModalVisible(false)}>
         <Text style={theme.modalTitle}>Edit Display Name</Text>
         <TextInput
-          style={styles.modalInput}
+          style={theme.input}
           value={newDisplayName}
           onChangeText={setNewDisplayName}
           placeholder="Enter new display name"
         />
-        <View style={styles.modalButtonRow}>
-          <Button title="Cancel" onPress={() => setEditNameModalVisible(false)} />
-          <Button title="Save" onPress={handleUpdateDisplayName} />
+        <View style={theme.buttonRow}>
+          <ThemedButton title="Cancel" variant="secondary" onPress={() => setEditNameModalVisible(false)} />
+          <ThemedButton title="Save" onPress={handleUpdateDisplayName} />
         </View>
       </ThemedModal>
 
-      <ThemedModal
-        visible={editPhotoModalVisible}
-        onRequestClose={() => setEditPhotoModalVisible(false)}
-      >
-        <Text style={styles.modalTitle}>Edit Profile Photo</Text>
+      <ThemedModal visible={editPhotoModalVisible} onRequestClose={() => setEditPhotoModalVisible(false)}>
+        <Text style={theme.modalTitle}>Edit Profile Photo</Text>
         {newPhotoUri ? (
-          <Image
-            source={{ uri: newPhotoUri }}
-            style={styles.modalPreviewImage}
-          />
+          <Image source={{ uri: newPhotoUri }} style={theme.previewImage} />
         ) : (
           <DefaultAvatar size={150} />
         )}
-        <View style={styles.modalButtonRow}>
-          <Button title="Gallery" onPress={pickImageFromGallery} />
-          <Button title="Camera" onPress={takePhoto} />
-          <Button title="Remove" onPress={removePhoto} />
+        <View style={theme.buttonRow}>
+          <ThemedButton title="Gallery" variant="primary" onPress={pickImageFromGallery} />
+          <ThemedButton title="Camera" variant="primary" onPress={takePhoto} />
+          <ThemedButton title="Remove" variant="primary" onPress={removePhoto} />
         </View>
-        <View style={styles.modalButtonRow}>
-          <Button title="Cancel" onPress={() => setEditPhotoModalVisible(false)} />
-          <Button title="Save" onPress={handleUpdatePhoto} />
+        <View style={theme.buttonRow}>
+          <ThemedButton title="Cancel" variant="secondary" onPress={() => setEditPhotoModalVisible(false)} />
+          <ThemedButton title="Save" onPress={handleUpdatePhoto} />
         </View>
       </ThemedModal>
 
-      <ThemedModal
-        visible={submitTestModalVisible}
-        useBlur
-        onRequestClose={() => setSubmitTestModalVisible(false)}
-      >
-        <SubmitTestResults
-          onClose={() => {
-            setSubmitTestModalVisible(false);
-            refreshHealthStatuses();
-          }}
-        />
+      <ThemedModal visible={submitTestModalVisible} useBlur onRequestClose={() => setSubmitTestModalVisible(false)}>
+        <SubmitTestResults onClose={() => {
+          setSubmitTestModalVisible(false);
+          refreshHealthStatuses();
+        }} />
       </ThemedModal>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    // Removed hardcoded background in favor of global theme (theme.container supplies it)
-    flex: 1,
-  },
-  headerContainer: {
-    width: '100%',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    // Optionally remove backgroundColor if your theme provides one
-    backgroundColor: '#fff',
-  },
-  profileInfo: {
-    alignItems: 'center',
-  },
-  nameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  displayName: {
-    fontSize: 24,
-    marginRight: 10,
-  },
-  editText: {
-    fontSize: 16,
-    // Color set inline using theme.buttonSecondary.backgroundColor
-  },
-  imageContainer: {
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  profileImage: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    marginBottom: 10,
-  },
-  submitTestButtonFixed: {
-    marginVertical: 10,
-    alignSelf: 'center',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  healthStatusScroll: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  healthStatusContainer: {
-    width: '100%',
-    marginVertical: 10,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-  },
-  healthStatusTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  healthStatusRow: {
-    marginVertical: 5,
-    paddingVertical: 5,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-  },
-  healthStatusStd: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  healthStatusText: {
-    fontSize: 14,
-    color: '#555',
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    marginBottom: 20,
-    borderRadius: 5,
-  },
-  modalButtonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 10,
-  },
-  modalPreviewImage: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-});
