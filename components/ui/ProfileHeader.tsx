@@ -7,13 +7,11 @@ import DefaultAvatar from '@/components/DefaultAvatar';
 type ProfileHeaderProps = {
   displayName: string;
   imageUrl?: string;
-  onEditName: () => void;
-  onEditPhoto: () => void;
-  // Optional callback for submitting test results; if provided, shows the link.
+  onEditProfile: () => void;
   onSubmitTest?: () => void;
 };
 
-export function ProfileHeader({ displayName, imageUrl, onEditName, onEditPhoto, onSubmitTest }: ProfileHeaderProps) {
+export function ProfileHeader({ displayName, imageUrl, onEditProfile, onSubmitTest }: ProfileHeaderProps) {
   const theme = useTheme();
   return (
     <View style={theme.profileHeader}>
@@ -24,12 +22,9 @@ export function ProfileHeader({ displayName, imageUrl, onEditName, onEditPhoto, 
       )}
       <View style={theme.profileTextContainer}>
         <Text style={theme.profileName}>{displayName}</Text>
-        <View style={theme.profileHeaderLinksRow}>
-          <TouchableOpacity onPress={onEditName}>
-            <Text style={theme.profileHeaderLink}>Edit Name</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onEditPhoto}>
-            <Text style={theme.profileHeaderLink}>Edit Photo</Text>
+        <View style={theme.profileHeaderActionsRow}>
+          <TouchableOpacity onPress={onEditProfile}>
+            <Text style={theme.profileHeaderLink}>Edit Profile</Text>
           </TouchableOpacity>
           {onSubmitTest && (
             <TouchableOpacity onPress={onSubmitTest}>

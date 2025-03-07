@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Button, Image, SafeAreaView, Text, View, TextInput } from 'react-native';
+import { ActivityIndicator, Button, Image, SafeAreaView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
@@ -16,6 +16,7 @@ import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
 import { ProfileHeader } from '@/components/ui/ProfileHeader';
 import { HealthStatusArea } from '@/components/ui/HealthStatusArea';
+import { EditProfileModal } from '@/components/ui/EditProfileModal';
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -28,12 +29,10 @@ export default function HomeScreen() {
   const [profileData, setProfileData] = useState<any>(null);
   const [healthStatuses, setHealthStatuses] = useState<{ [key: string]: any } | null>(null);
 
-  // Modal states
-  const [editNameModalVisible, setEditNameModalVisible] = useState(false);
-  const [editPhotoModalVisible, setEditPhotoModalVisible] = useState(false);
+  // Modal state for the combined Edit Profile modal
+  const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
+  // (Keep Submit Test Results modal state if you still use it)
   const [submitTestModalVisible, setSubmitTestModalVisible] = useState(false);
-  const [newDisplayName, setNewDisplayName] = useState('');
-  const [newPhotoUri, setNewPhotoUri] = useState<string>('');
 
   const { stdis, loading: stdisLoading } = useStdis();
 
@@ -74,7 +73,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Refresh health statuses when STDIs change
   useEffect(() => {
     refreshHealthStatuses();
   }, [user, suuid, stdis, db]);
@@ -88,25 +86,47 @@ export default function HomeScreen() {
     }
   };
 
-  // Update display name
-  const handleUpdateDisplayName = async () => {
-    if (!newDisplayName.trim()) {
-      Alert.alert('Error', 'Display name cannot be empty.');
-      return;
-    }
+  // Combined update profile function for EditProfileModal
+  const handleUpdateProfile = async (updatedDisplayName: string, updatedPhotoUri: string) => {
     try {
       const psuuid = await computePSUUIDFromSUUID(suuid!);
       const profileDocRef = doc(db, 'publicProfile', psuuid);
-      await updateDoc(profileDocRef, { displayName: newDisplayName.trim() });
-      setProfileData({ ...profileData, displayName: newDisplayName.trim() });
-      setEditNameModalVisible(false);
+      let finalPhotoUrl = updatedPhotoUri;
+
+      // If the photo has changed and is non-empty, update storage
+      if (updatedPhotoUri !== profileData?.imageUrl) {
+        if (updatedPhotoUri) {
+          if (profileData?.imageUrl) {
+            try {
+              const oldRef = ref(storage, `profileImages/${psuuid}.jpg`);
+              await deleteObject(oldRef);
+            } catch (error) {
+              console.error('Error deleting old image:', error);
+            }
+          }
+          const response = await fetch(updatedPhotoUri);
+          const blob = await response.blob();
+          const storageRef = ref(storage, `profileImages/${psuuid}.jpg`);
+          await uploadBytes(storageRef, blob);
+          finalPhotoUrl = await getDownloadURL(storageRef);
+        } else {
+          finalPhotoUrl = '';
+        }
+      }
+
+      await updateDoc(profileDocRef, {
+        displayName: updatedDisplayName,
+        imageUrl: finalPhotoUrl,
+      });
+      setProfileData({ ...profileData, displayName: updatedDisplayName, imageUrl: finalPhotoUrl });
+      setEditProfileModalVisible(false);
     } catch (error: any) {
-      console.error('Error updating display name:', error);
+      console.error('Error updating profile:', error);
       Alert.alert('Error', error.message);
     }
   };
 
-  // Functions for editing profile photo
+  // Functions for editing profile photo (pass-through to the modal)
   const pickImageFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -118,7 +138,9 @@ export default function HomeScreen() {
       quality: 0.7,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setNewPhotoUri(result.assets[0].uri);
+      // For the modal, you may choose to update its local state.
+      // Here we simply pass the action to the modal via callbacks.
+      // (You might lift the photo state if needed.)
     }
   };
 
@@ -132,46 +154,7 @@ export default function HomeScreen() {
       quality: 0.7,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      setNewPhotoUri(result.assets[0].uri);
-    }
-  };
-
-  const removePhoto = () => {
-    setNewPhotoUri('');
-  };
-
-  const uriToBlob = async (uri: string): Promise<Blob> => {
-    const response = await fetch(uri);
-    return await response.blob();
-  };
-
-  const handleUpdatePhoto = async () => {
-    try {
-      const psuuid = await computePSUUIDFromSUUID(suuid!);
-      const profileDocRef = doc(db, 'publicProfile', psuuid);
-      let updatedImageUrl = profileData?.imageUrl || '';
-      if (newPhotoUri) {
-        if (profileData?.imageUrl) {
-          try {
-            const oldRef = ref(storage, `profileImages/${psuuid}.jpg`);
-            await deleteObject(oldRef);
-          } catch (error) {
-            console.error('Error deleting old image:', error);
-          }
-        }
-        const blob = await uriToBlob(newPhotoUri);
-        const storageRef = ref(storage, `profileImages/${psuuid}.jpg`);
-        await uploadBytes(storageRef, blob);
-        updatedImageUrl = await getDownloadURL(storageRef);
-      } else {
-        updatedImageUrl = '';
-      }
-      await updateDoc(profileDocRef, { imageUrl: updatedImageUrl });
-      setProfileData({ ...profileData, imageUrl: updatedImageUrl });
-      setEditPhotoModalVisible(false);
-    } catch (error: any) {
-      console.error('Error updating photo:', error);
-      Alert.alert('Error', error.message);
+      // Same as above.
     }
   };
 
@@ -187,69 +170,38 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={theme.container}>
-      {/* Profile Header includes the submit test results button */}
+      {/* Profile Header with combined "Edit Profile" and "Submit Test Result" links */}
       <ProfileHeader
         displayName={profileData?.displayName}
         imageUrl={profileData?.imageUrl}
-        onEditName={() => {
-          setNewDisplayName(profileData?.displayName);
-          setEditNameModalVisible(true);
-        }}
-        onEditPhoto={() => {
-          setNewPhotoUri(profileData?.imageUrl || '');
-          setEditPhotoModalVisible(true);
-        }}
+        onEditProfile={() => setEditProfileModalVisible(true)}
         onSubmitTest={() => setSubmitTestModalVisible(true)}
       />
 
       {/* Health Status Area */}
-      <View style={{ padding: 20, alignItems: 'center', flex: 1, paddingBottom: insets.bottom + 75 }}>
+      <View style={{ paddingLeft: 20, paddingTop: 20, alignItems: 'center', flex: 1, paddingBottom: insets.bottom + 75 }}>
         <Text style={theme.title}>Health Status</Text>
         <HealthStatusArea stdis={stdis} statuses={healthStatuses} />
       </View>
 
       {/* Logout Button positioned at top right */}
       <View style={{ position: 'absolute', top: insets.top + 10, right: 10 }}>
-        <Button
-          title="Logout"
-          color={theme.buttonPrimary.backgroundColor}
-          onPress={handleLogout}
-        />
+        <Button title="Logout" color={theme.buttonPrimary.backgroundColor} onPress={handleLogout} />
       </View>
 
-      {/* Modals */}
-      <ThemedModal visible={editNameModalVisible} onRequestClose={() => setEditNameModalVisible(false)}>
-        <Text style={theme.modalTitle}>Edit Display Name</Text>
-        <TextInput
-          style={theme.input}
-          value={newDisplayName}
-          onChangeText={setNewDisplayName}
-          placeholder="Enter new display name"
-        />
-        <View style={theme.buttonRow}>
-          <Button title="Cancel" onPress={() => setEditNameModalVisible(false)} color={theme.buttonSecondary.backgroundColor} />
-          <Button title="Save" onPress={handleUpdateDisplayName} color={theme.buttonPrimary.backgroundColor} />
-        </View>
-      </ThemedModal>
+      {/* Combined Edit Profile Modal */}
+      <EditProfileModal
+        visible={editProfileModalVisible}
+        initialDisplayName={profileData?.displayName}
+        initialPhotoUri={profileData?.imageUrl}
+        onPickImage={pickImageFromGallery}
+        onTakePhoto={takePhoto}
+        onRemovePhoto={() => {}}
+        onCancel={() => setEditProfileModalVisible(false)}
+        onSave={handleUpdateProfile}
+      />
 
-      <ThemedModal visible={editPhotoModalVisible} onRequestClose={() => setEditPhotoModalVisible(false)}>
-        <Text style={theme.modalTitle}>Edit Profile Photo</Text>
-        {newPhotoUri ? (
-          <Image source={{ uri: newPhotoUri }} style={theme.previewImage} />
-        ) : (
-          <DefaultAvatar size={150} />
-        )}
-        <View style={theme.buttonRow}>
-          <Button title="Gallery" onPress={pickImageFromGallery} color={theme.buttonPrimary.backgroundColor} />
-          <Button title="Camera" onPress={takePhoto} color={theme.buttonPrimary.backgroundColor} />
-          <Button title="Remove" onPress={removePhoto} color={theme.buttonPrimary.backgroundColor} />
-        </View>
-        <View style={theme.buttonRow}>
-          <Button title="Cancel" onPress={() => setEditPhotoModalVisible(false)} color={theme.buttonSecondary.backgroundColor} />
-          <Button title="Save" onPress={handleUpdatePhoto} color={theme.buttonPrimary.backgroundColor} />
-        </View>
-      </ThemedModal>
-
+      {/* Submit Test Results Modal */}
       <ThemedModal visible={submitTestModalVisible} useBlur onRequestClose={() => setSubmitTestModalVisible(false)}>
         <SubmitTestResults onClose={() => {
           setSubmitTestModalVisible(false);

@@ -110,6 +110,7 @@ export const lightTheme = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
+    paddingLeft: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.light.border,
   },
@@ -128,10 +129,12 @@ export const lightTheme = StyleSheet.create({
     fontWeight: typography.titleFontWeight,
     color: Colors.light.primary,
   },
-  profileHeaderLinksRow: {
+  // New: container for the bottom row of links
+  profileHeaderActionsRow: {
     flexDirection: 'row',
     marginTop: 5,
   },
+  // For individual link styles:
   profileHeaderLink: {
     fontSize: 14,
     color: Colors.light.buttonSecondary,
@@ -139,10 +142,10 @@ export const lightTheme = StyleSheet.create({
   },
   profileHeaderSubmitLink: {
     fontSize: 14,
-    color: Colors.light.buttonPrimary, // red-ish tone
+    color: Colors.light.buttonPrimary, // red-ish tone for submit
   },
 
-  // New: Health status area
+  // Health status area
   healthStatusContainer: {
     width: '100%',
     marginVertical: 10,
@@ -158,8 +161,6 @@ export const lightTheme = StyleSheet.create({
     textAlign: 'center',
     color: Colors.light.primary,
   },
-  // HealthStatusCard will be styled in its own component,
-  // but you can add a common container style here if needed.
 });
 
 export const darkTheme = StyleSheet.create({
@@ -268,7 +269,7 @@ export const darkTheme = StyleSheet.create({
     fontWeight: typography.titleFontWeight,
     color: Colors.dark.primary,
   },
-  profileHeaderLinksRow: {
+  profileHeaderActionsRow: {
     flexDirection: 'row',
     marginTop: 5,
   },
@@ -280,10 +281,6 @@ export const darkTheme = StyleSheet.create({
   profileHeaderSubmitLink: {
     fontSize: 14,
     color: Colors.dark.buttonPrimary,
-  },
-  editButtonText: {
-    fontSize: 16,
-    color: Colors.dark.buttonSecondary,
   },
   healthStatusContainer: {
     width: '100%',
