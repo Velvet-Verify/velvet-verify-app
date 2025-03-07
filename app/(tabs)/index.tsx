@@ -11,18 +11,20 @@ import {
   TextInput,
   Alert,
   TouchableOpacity,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { firebaseApp } from '@/src/firebase/config';
-import { computePSUUIDFromSUUID } from '@/src/utils/hash';
+import { computePSUUIDFromSUUID, computeHSUUIDFromSUUID } from '@/src/utils/hash';
 import * as ImagePicker from 'expo-image-picker';
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import DefaultAvatar from '@/components/DefaultAvatar';
 import SubmitTestResults from '@/components/SubmitTestResults';
 import { BlurView } from 'expo-blur';
+import { useStdis } from '@/hooks/useStdis';
 
 export default function HomeScreen() {
   const { user, suuid, logout } = useAuth();
@@ -32,15 +34,18 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
+  const [healthStatuses, setHealthStatuses] = useState<{ [key: string]: any }>({});
 
-  // States for modals:
+  // Modal states
   const [editNameModalVisible, setEditNameModalVisible] = useState(false);
   const [editPhotoModalVisible, setEditPhotoModalVisible] = useState(false);
   const [submitTestModalVisible, setSubmitTestModalVisible] = useState(false);
   const [newDisplayName, setNewDisplayName] = useState('');
   const [newPhotoUri, setNewPhotoUri] = useState<string>('');
 
-  // Load public profile from Firestore on mount:
+  const { stdis, loading: stdisLoading } = useStdis();
+
+  // Load public profile on mount
   useEffect(() => {
     async function loadProfile() {
       if (user && suuid) {
@@ -48,7 +53,6 @@ export default function HomeScreen() {
         const profileDocRef = doc(db, 'publicProfile', psuuid);
         const docSnap = await getDoc(profileDocRef);
         if (!docSnap.exists()) {
-          // If no profile exists, redirect to ProfileSetup.
           router.replace('/ProfileSetup');
         } else {
           setProfileData(docSnap.data());
@@ -59,6 +63,30 @@ export default function HomeScreen() {
     loadProfile();
   }, [user, suuid, db, router]);
 
+  // Function to refresh health statuses for each STDI
+  const refreshHealthStatuses = async () => {
+    if (user && suuid && stdis && stdis.length > 0) {
+      const hsUUID = await computeHSUUIDFromSUUID(suuid);
+      const hsData: { [key: string]: any } = {};
+      await Promise.all(
+        stdis.map(async (stdi) => {
+          const hsDocId = `${hsUUID}_${stdi.id}`;
+          const hsDocRef = doc(db, 'healthStatus', hsDocId);
+          const hsDocSnap = await getDoc(hsDocRef);
+          if (hsDocSnap.exists()) {
+            hsData[stdi.id] = hsDocSnap.data();
+          }
+        })
+      );
+      setHealthStatuses(hsData);
+    }
+  };
+
+  // Load healthStatus for each STDI when STDIs change
+  useEffect(() => {
+    refreshHealthStatuses();
+  }, [user, suuid, stdis, db]);
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -68,7 +96,7 @@ export default function HomeScreen() {
     }
   };
 
-  // Update display name in Firestore:
+  // Update display name
   const handleUpdateDisplayName = async () => {
     if (!newDisplayName.trim()) {
       Alert.alert('Error', 'Display name cannot be empty.');
@@ -86,7 +114,7 @@ export default function HomeScreen() {
     }
   };
 
-  // Functions for editing profile photo:
+  // Functions for editing profile photo
   const pickImageFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -131,7 +159,6 @@ export default function HomeScreen() {
       const profileDocRef = doc(db, 'publicProfile', psuuid);
       let updatedImageUrl = profileData?.imageUrl || '';
       if (newPhotoUri) {
-        // If there's an existing image, delete it.
         if (profileData?.imageUrl) {
           try {
             const oldRef = ref(storage, `profileImages/${psuuid}.jpg`);
@@ -145,7 +172,6 @@ export default function HomeScreen() {
         await uploadBytes(storageRef, blob);
         updatedImageUrl = await getDownloadURL(storageRef);
       } else {
-        // If newPhotoUri is empty, we remove the image.
         updatedImageUrl = '';
       }
       await updateDoc(profileDocRef, { imageUrl: updatedImageUrl });
@@ -169,45 +195,74 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        {/* Display Name Section */}
-        <View style={styles.nameContainer}>
-          <Text style={styles.displayName}>{profileData?.displayName}</Text>
-          <TouchableOpacity onPress={() => {
-            setNewDisplayName(profileData?.displayName);
-            setEditNameModalVisible(true);
-          }}>
-            <Text style={styles.editText}>Edit</Text>
-          </TouchableOpacity>
+      {/* Fixed Header */}
+      <View style={styles.headerContainer}>
+        <View style={styles.profileInfo}>
+          <View style={styles.nameContainer}>
+            <Text style={styles.displayName}>{profileData?.displayName}</Text>
+            <TouchableOpacity onPress={() => {
+              setNewDisplayName(profileData?.displayName);
+              setEditNameModalVisible(true);
+            }}>
+              <Text style={styles.editText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.imageContainer}>
+            {profileData?.imageUrl ? (
+              <Image source={{ uri: profileData.imageUrl }} style={styles.profileImage} />
+            ) : (
+              <DefaultAvatar size={150} />
+            )}
+            <TouchableOpacity onPress={() => {
+              setNewPhotoUri(profileData?.imageUrl || '');
+              setEditPhotoModalVisible(true);
+            }}>
+              <Text style={styles.editText}>Edit Photo</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        {/* Profile Image Section */}
-        <View style={styles.imageContainer}>
-          {profileData?.imageUrl ? (
-            <Image source={{ uri: profileData.imageUrl }} style={styles.profileImage} />
-          ) : (
-            <DefaultAvatar size={150} />
-          )}
-          <TouchableOpacity onPress={() => {
-            setNewPhotoUri(profileData?.imageUrl || '');
-            setEditPhotoModalVisible(true);
-          }}>
-            <Text style={styles.editText}>Edit Photo</Text>
-          </TouchableOpacity>
-        </View>
-        {/* Submit Test Results Button */}
-        <View style={styles.submitTestButtonContainer}>
-          <Button
-            title="Submit Test Results"
-            onPress={() => setSubmitTestModalVisible(true)}
-          />
-        </View>
-        {/* Logout Button */}
-        <View style={[styles.logoutButtonContainer, { bottom: insets.bottom + 20 }]}>
-          <Button title="Logout" onPress={handleLogout} />
+        <View style={styles.submitTestButtonFixed}>
+          <Button title="Submit Test Results" onPress={() => setSubmitTestModalVisible(true)} />
         </View>
       </View>
+      
+      {/* Scrollable Health Status Area */}
+      <ScrollView contentContainerStyle={styles.healthStatusScroll}>
+        <View style={styles.healthStatusContainer}>
+          <Text style={styles.healthStatusTitle}>Health Status</Text>
+          {stdis.map((stdi) => {
+            const hsData = healthStatuses[stdi.id];
+            const testResultText = hsData && typeof hsData.testResult === 'boolean'
+              ? (hsData.testResult ? 'Positive' : 'Negative')
+              : 'Not Tested';
+            const testDateText = hsData && hsData.testDate
+              ? new Date(hsData.testDate.seconds * 1000).toLocaleDateString()
+              : 'N/A';
+            const exposureStatusText = hsData && typeof hsData.exposureStatus === 'boolean'
+              ? (hsData.exposureStatus ? 'Exposed' : 'Not Exposed')
+              : 'Not Exposed';
+            const exposureDateText = hsData && hsData.exposureDate
+              ? new Date(hsData.exposureDate.seconds * 1000).toLocaleDateString()
+              : 'N/A';
+            return (
+              <View key={stdi.id} style={styles.healthStatusRow}>
+                <Text style={styles.healthStatusStd}>{stdi.id}</Text>
+                <Text style={styles.healthStatusText}>Result: {testResultText}</Text>
+                <Text style={styles.healthStatusText}>Test Date: {testDateText}</Text>
+                <Text style={styles.healthStatusText}>Exposure: {exposureStatusText}</Text>
+                <Text style={styles.healthStatusText}>Exposure Date: {exposureDateText}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
 
-      {/* Modal for editing display name */}
+      {/* Logout Button in Top Right */}
+      <View style={[styles.logoutButtonContainer, { top: insets.top + 10, right: 10, position: 'absolute' }]}>
+        <Button title="Logout" onPress={handleLogout} />
+      </View>
+
+      {/* Modals */}
       <Modal visible={editNameModalVisible} transparent animationType="slide">
         <View style={styles.modalBackground}>
           <View style={styles.modalContainer}>
@@ -226,7 +281,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Modal for editing photo */}
       <Modal visible={editPhotoModalVisible} transparent animationType="slide">
         <View style={styles.modalBackground}>
           <View style={styles.modalContainer}>
@@ -249,12 +303,12 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      {/* Modal for submitting test results */}
       <Modal visible={submitTestModalVisible} transparent animationType="slide">
         <BlurView intensity={50} style={styles.modalBackground}>
-          <View style={styles.modalBackground}>
-            <SubmitTestResults onClose={() => setSubmitTestModalVisible(false)} />
-          </View>
+          <SubmitTestResults onClose={() => {
+            setSubmitTestModalVisible(false);
+            refreshHealthStatuses(); // Refresh health statuses after submitting.
+          }} />
         </BlurView>
       </Modal>
     </SafeAreaView>
@@ -266,20 +320,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerContainer: {
+    width: '100%',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    backgroundColor: '#fff',
   },
-  container: {
-    flex: 1,
-    padding: 20,
+  profileInfo: {
     alignItems: 'center',
   },
   nameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   displayName: {
     fontSize: 24,
@@ -291,7 +344,7 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   profileImage: {
     width: 150,
@@ -299,17 +352,54 @@ const styles = StyleSheet.create({
     borderRadius: 75,
     marginBottom: 10,
   },
-  submitTestButtonContainer: {
-    marginVertical: 20,
+  submitTestButtonFixed: {
+    marginVertical: 10,
+    alignSelf: 'center',
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  healthStatusScroll: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  healthStatusContainer: {
+    width: '100%',
+    marginVertical: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+  },
+  healthStatusTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  healthStatusRow: {
+    marginVertical: 5,
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+  },
+  healthStatusStd: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  healthStatusText: {
+    fontSize: 14,
+    color: '#555',
   },
   logoutButtonContainer: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
+    // Positioned via inline style.
   },
   modalBackground: {
     flex: 1,
-    width: "100%",
+    width: '100%',
+    height: '100%',
     backgroundColor: 'rgba(0, 0, 0, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
