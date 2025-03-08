@@ -2,14 +2,15 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
-import { ResultIcon } from './ResultIcon';
+import { ResultIcon, ResultType } from './ResultIcon';
 
 type HealthStatusCardProps = {
-  name: string;         // Changed from 'sti' to 'name'
+  name: string;         // Full display name for the STDI
   testResult: string;   // "Positive", "Negative", or "Not Tested"
-  testDate: any;        // raw timestamp, Date, or null
+  testDate: any;        // Firestore Timestamp, Date, or null
   exposure: string;     // "Exposed" or "Not Exposed"
-  exposureDate: any;    // raw timestamp, Date, or null
+  exposureDate: any;    // Firestore Timestamp, Date, or null
+  windowPeriodMax: number;  // Number of days to add to exposureDate
 };
 
 function formatDate(dateValue: any): string {
@@ -24,46 +25,93 @@ function formatDate(dateValue: any): string {
   return isNaN(dateObj.getTime()) ? 'N/A' : dateObj.toLocaleDateString();
 }
 
-export function HealthStatusCard({ name, testResult, testDate, exposure, exposureDate }: HealthStatusCardProps) {
+function computeTestAfterDate(exposureDate: any, windowPeriodMax: number): string {
+  let dateObj: Date;
+  if (typeof exposureDate === 'object' && exposureDate.seconds !== undefined) {
+    dateObj = new Date(exposureDate.seconds * 1000);
+  } else if (typeof exposureDate.toDate === 'function') {
+    dateObj = exposureDate.toDate();
+  } else {
+    dateObj = new Date(exposureDate);
+  }
+  // Clone the date to avoid mutating the original.
+  const testAfterDate = new Date(dateObj);
+  testAfterDate.setDate(testAfterDate.getDate() + windowPeriodMax);
+  const formattedDate = testAfterDate.toLocaleDateString();
+  return formattedDate;
+}
+
+export function HealthStatusCard({
+  name,
+  testResult,
+  testDate,
+  exposure,
+  exposureDate,
+  windowPeriodMax,
+}: HealthStatusCardProps) {
   const theme = useTheme();
 
-  // Determine result type for the icon.
-  const resultType: 'positive' | 'negative' | 'notTested' =
+  const baseResult: ResultType =
     testResult.toLowerCase() === 'positive'
       ? 'positive'
       : testResult.toLowerCase() === 'negative'
       ? 'negative'
       : 'notTested';
 
+  const caution =
+    exposure.toLowerCase() === 'exposed' && baseResult !== 'positive';
+
   return (
     <View style={styles.card}>
-      <View style={styles.headerRow}>
-        <Text style={[styles.name, { color: theme.title.color }]}>{name}</Text>
-        <ResultIcon result={resultType} active={true} onPress={() => {}} />
+      {/* This is the row that holds our text block and the icon block */}
+      <View style={styles.rowContainer}>
+        <View style={styles.textContainer}>
+          <Text style={[styles.name, { color: theme.title.color }]}>{name}</Text>
+          {baseResult !== 'notTested' && testDate && (
+            <Text style={styles.label}>
+              Test Date: {formatDate(testDate)}
+            </Text>
+          )}
+          {exposure.toLowerCase() === 'exposed' && exposureDate ? (
+            <Text style={styles.label}>
+              Exposed: Test After{' '}
+              {computeTestAfterDate(exposureDate, windowPeriodMax)}
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={styles.iconContainer}>
+          <ResultIcon
+            result={baseResult}
+            active={true}
+            caution={caution}
+            onPress={() => {}}
+          />
+        </View>
       </View>
-      {resultType !== 'notTested' && testDate && (
-        <Text style={styles.label}>Test Date: {formatDate(testDate)}</Text>
-      )}
-      <Text style={styles.label}>Exposure: {exposure}</Text>
-      {exposure.toLowerCase() === 'exposed' && exposureDate && (
-        <Text style={styles.label}>Exposure Date: {formatDate(exposureDate)}</Text>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    paddingVertical: 5,
+    // paddingVertical: 5,
+    // marginVertical: 4,
     borderBottomWidth: 1,
     borderColor: '#eee',
-    marginVertical: 5,
-    marginRight: 15,
+    marginRight: 10,
   },
-  headerRow: {
+  rowContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center', 
+    paddingVertical: 5,
+  },
+  textContainer: {
+    flex: 1, 
+  },
+  iconContainer: {
+    paddingVertical: 5,
   },
   name: {
     fontSize: 16,
@@ -72,5 +120,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     color: '#555',
+    marginBottom: 2,
   },
 });

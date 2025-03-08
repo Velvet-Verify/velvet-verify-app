@@ -7,29 +7,36 @@ export type ResultType = 'positive' | 'negative' | 'notTested';
 interface ResultIconProps {
   result: ResultType;
   active: boolean;
+  caution?: boolean;
   onPress: () => void;
   style?: ViewStyle;
   textStyle?: TextStyle;
 }
 
-export function ResultIcon({ result, active, onPress, style, textStyle }: ResultIconProps) {
-  let selectedStyle;
-  switch (result) {
-    case 'negative':
-      selectedStyle = active ? styles.negativeSelected : styles.unselectedOption;
-      break;
-    case 'positive':
-      selectedStyle = active ? styles.positiveSelected : styles.unselectedOption;
-      break;
-    case 'notTested':
-      selectedStyle = active ? styles.notTestedSelected : styles.unselectedOption;
-      break;
-  }
-
+export function ResultIcon({ result, active, caution = false, onPress, style, textStyle }: ResultIconProps) {
+  // Determine display text based on the base result.
   const displayText = result === 'negative' ? '–' : result === 'positive' ? '+' : '○';
 
+  // If caution is true (i.e. exposure is "exposed" and result isn’t positive), use amber style.
+  const computedStyle =
+    caution && (result === 'negative' || result === 'notTested')
+      ? styles.amberSelected
+      : result === 'negative'
+      ? active
+        ? styles.negativeSelected
+        : styles.unselectedOption
+      : result === 'positive'
+      ? active
+        ? styles.positiveSelected
+        : styles.unselectedOption
+      : result === 'notTested'
+      ? active
+        ? styles.notTestedSelected
+        : styles.unselectedOption
+      : styles.unselectedOption;
+
   return (
-    <TouchableOpacity onPress={onPress} style={[styles.optionButton, selectedStyle, style]}>
+    <TouchableOpacity onPress={onPress} style={[styles.optionButton, computedStyle, style]}>
       <Text style={[styles.optionText, active ? styles.selectedText : styles.unselectedText, textStyle]}>
         {displayText}
       </Text>
@@ -56,6 +63,11 @@ const styles = StyleSheet.create({
   notTestedSelected: {
     backgroundColor: 'gray',
     borderColor: 'gray',
+  },
+  // New amber style for cautionary cases
+  amberSelected: {
+    backgroundColor: '#FFBF00', // amber color
+    borderColor: '#FFBF00',
   },
   unselectedOption: {
     backgroundColor: 'white',
