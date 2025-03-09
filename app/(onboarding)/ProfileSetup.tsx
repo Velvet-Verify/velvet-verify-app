@@ -38,7 +38,7 @@ export default function ProfileSetup() {
       // Call the cloud function to compute the public profile hash.
       const result = await computeHashedIdCF({ hashType: "profile" });
       const psuuid = result.data.hashedId;
-      console.log("Computed PSUUID from Cloud Function:", psuuid);
+      // console.log("Computed PSUUID from Cloud Function:", psuuid);
 
       let imageUrl = "";
       if (photoUri) {
