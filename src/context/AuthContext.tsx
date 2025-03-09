@@ -9,7 +9,7 @@ import {
   sendEmailVerification,
 } from 'firebase/auth';
 import { firebaseApp } from '../firebase/config';
-import { computeSUUID } from '@/src/utils/hash';
+import { computeHashedId } from '@/src/utils/hash'; // Updated import
 
 const auth = getAuth(firebaseApp);
 
@@ -32,8 +32,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribe = onAuthStateChanged(auth, async (usr) => {
       setUser(usr);
       if (usr) {
-        // Compute and store the SUUID once per session.
-        const computed = await computeSUUID(usr.uid);
+        // Compute and store the SUUID using the new function.
+        const computed = await computeHashedId('standard');
+        // console.log("Computed SUUID:", computed); // Log to validate the computed value
         setSUUID(computed);
       } else {
         setSUUID(null);

@@ -13,7 +13,7 @@ import { useRouter } from 'expo-router';
 import { getFirestore, collection, addDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { firebaseApp } from '@/src/firebase/config';
 import { useAuth } from '@/src/context/AuthContext';
-import { computeHSUUIDFromSUUID, computeTSUUIDFromSUUID } from '@/src/utils/hash';
+import { computeHashedId } from '@/src/utils/hash'; // Updated import
 import { useStdis } from '@/hooks/useStdis';
 import { useTheme } from 'styled-components/native';
 import { ThemedButton } from '@/components/ui/ThemedButton';
@@ -58,7 +58,10 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
         const resultOption = results[stdi.id];
         if (resultOption === 'notTested') continue;
         const booleanResult = resultOption === 'positive';
-        const tsuuid = await computeTSUUIDFromSUUID(suuid);
+
+        // Compute the test status hash (TSUUID) using the new function.
+        const tsuuid = await computeHashedId('test');
+        // console.log("Computed TSUUID:", tsuuid);
 
         await addDoc(collection(db, 'testResults'), {
           STDI: stdi.id,
@@ -67,7 +70,9 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
           testDate: testDate,
         });
 
-        const hsUUID = await computeHSUUIDFromSUUID(suuid);
+        // Compute the health status hash (HSUUID) using the new function.
+        const hsUUID = await computeHashedId('health');
+        // console.log("Computed HSUUID:", hsUUID);
         const hsDocId = `${hsUUID}_${stdi.id}`;
         const hsDocRef = doc(db, 'healthStatus', hsDocId);
         const hsDocSnap = await getDoc(hsDocRef);

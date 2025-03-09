@@ -6,14 +6,14 @@ import { getFirestore, doc, setDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { firebaseApp } from '@/src/firebase/config';
 import { useAuth } from '@/src/context/AuthContext';
-import { computePSUUIDFromSUUID } from '@/src/utils/hash';
+import { computeHashedId } from '@/src/utils/hash'; // Updated import
 import { useTheme } from 'styled-components/native';
 import { EditProfileModal } from '@/components/ui/EditProfileModal';
 
 export default function ProfileSetup() {
   const theme = useTheme();
   const router = useRouter();
-  const { user, suuid } = useAuth();
+  const { user } = useAuth();
   const db = getFirestore(firebaseApp);
   const storage = getStorage(firebaseApp);
 
@@ -23,12 +23,14 @@ export default function ProfileSetup() {
       Alert.alert('Error', 'Please enter a valid display name.');
       return;
     }
-    if (!user || !suuid) {
+    if (!user) {
       Alert.alert('Error', 'User not found or not initialized. Please log in again.');
       return;
     }
     try {
-      const psuuid = await computePSUUIDFromSUUID(suuid);
+      // Compute the module-specific (public profile) hash.
+      const psuuid = await computeHashedId('profile');
+      // console.log("Computed PSUUID:", psuuid); // Log to validate the computed value
       let imageUrl = '';
       if (photoUri) {
         const response = await fetch(photoUri);

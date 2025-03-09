@@ -13,6 +13,8 @@ export default ({ config }) => {
       profileHashKey: process.env.PROFILE_HASH_KEY,
       testHashKey: process.env.TEST_HASH_KEY,
       healthHashKey: process.env.HEALTH_HASH_KEY,
+      exposureHashKey: process.env.EXPOSURE_HASH_KEY,
+      membershipHashKey: process.env.MEMBERSHIP_HASH_KEY
     },
   };
 };

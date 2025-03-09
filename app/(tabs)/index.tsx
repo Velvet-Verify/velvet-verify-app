@@ -1,12 +1,12 @@
 // app/(tabs)/index.tsx
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Button, Image, SafeAreaView, Text, View } from 'react-native';
+import { ActivityIndicator, Button, Image, SafeAreaView, Text, View, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
 import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { firebaseApp } from '@/src/firebase/config';
-import { computePSUUIDFromSUUID, computeHSUUIDFromSUUID } from '@/src/utils/hash';
+import { computeHashedId } from '@/src/utils/hash'; // Updated import
 import * as ImagePicker from 'expo-image-picker';
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import DefaultAvatar from '@/components/DefaultAvatar';
@@ -40,7 +40,9 @@ export default function HomeScreen() {
   useEffect(() => {
     async function loadProfile() {
       if (user && suuid) {
-        const psuuid = await computePSUUIDFromSUUID(suuid);
+        // Compute the public profile hash using the new function.
+        const psuuid = await computeHashedId('profile');
+        // console.log("Computed PSUUID in loadProfile:", psuuid);
         const profileDocRef = doc(db, 'publicProfile', psuuid);
         const docSnap = await getDoc(profileDocRef);
         if (!docSnap.exists()) {
@@ -57,7 +59,9 @@ export default function HomeScreen() {
   // Refresh health statuses for each STDI
   const refreshHealthStatuses = async () => {
     if (user && suuid && stdis && stdis.length > 0) {
-      const hsUUID = await computeHSUUIDFromSUUID(suuid);
+      // Compute the health status hash using the new function.
+      const hsUUID = await computeHashedId('health');
+      // console.log("Computed HSUUID in refreshHealthStatuses:", hsUUID);
       const hsData: { [key: string]: any } = {};
       await Promise.all(
         stdis.map(async (stdi) => {
@@ -89,7 +93,9 @@ export default function HomeScreen() {
   // Combined update profile function for EditProfileModal
   const handleUpdateProfile = async (updatedDisplayName: string, updatedPhotoUri: string) => {
     try {
-      const psuuid = await computePSUUIDFromSUUID(suuid!);
+      // Compute the public profile hash using the new function.
+      const psuuid = await computeHashedId('profile');
+      // console.log("Computed PSUUID in handleUpdateProfile:", psuuid);
       const profileDocRef = doc(db, 'publicProfile', psuuid);
       let finalPhotoUrl = updatedPhotoUri;
 
