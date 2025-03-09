@@ -20,9 +20,11 @@ type EditProfileModalProps = {
   visible: boolean;
   initialDisplayName: string;
   initialPhotoUri?: string;
-  // onSave should handle updating Firebase storage and the database.
   onSave: (displayName: string, photoUri: string) => Promise<void>;
   onCancel: () => void;
+  // Optional props for customizing the modal
+  title?: string;
+  showCancel?: boolean;
 };
 
 export function EditProfileModal({
@@ -31,18 +33,19 @@ export function EditProfileModal({
   initialPhotoUri,
   onSave,
   onCancel,
+  title = "Edit Profile",
+  showCancel = true,
 }: EditProfileModalProps) {
   const theme = useTheme();
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [photoUri, setPhotoUri] = useState(initialPhotoUri || '');
 
-  // Update local state if props change.
   useEffect(() => {
     setDisplayName(initialDisplayName);
     setPhotoUri(initialPhotoUri || '');
   }, [initialDisplayName, initialPhotoUri]);
 
-  // Adapted function from index.tsx for picking an image from the gallery.
+  // Function to pick an image from the gallery.
   const pickImageFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -58,7 +61,7 @@ export function EditProfileModal({
     }
   };
 
-  // Adapted function from index.tsx for taking a photo.
+  // Function to take a photo.
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
@@ -73,12 +76,12 @@ export function EditProfileModal({
     }
   };
 
-  // Function to remove the photo.
+  // Function to remove the current photo.
   const removePhoto = () => {
     setPhotoUri('');
   };
 
-  // Show an action sheet for photo options.
+  // Display an action sheet for photo options.
   const handleEditPhoto = () => {
     Alert.alert(
       'Edit Photo',
@@ -93,16 +96,29 @@ export function EditProfileModal({
     );
   };
 
-  // Reset local state and then call onCancel.
+  // Reset local state then call onCancel.
   const handleCancel = () => {
     setDisplayName(initialDisplayName);
     setPhotoUri(initialPhotoUri || '');
     onCancel();
   };
 
+  // Validate display name before saving.
+  const handleSave = async () => {
+    const trimmedName = displayName.trim();
+    if (!/^(?=.*[A-Za-z])[A-Za-z\s'-]+$/.test(trimmedName)) {
+      Alert.alert(
+        'Invalid Display Name',
+        "Display name must contain at least one letter and can only contain letters, spaces, dashes (-), and apostrophes (')."
+      );
+      return;
+    }
+    await onSave(trimmedName, photoUri);
+  };
+
   return (
     <ThemedModal visible={visible} onRequestClose={handleCancel}>
-      <Text style={theme.modalTitle}>Edit Profile</Text>
+      <Text style={theme.modalTitle}>{title}</Text>
       <TextInput
         style={theme.input}
         value={displayName}
@@ -110,7 +126,7 @@ export function EditProfileModal({
         placeholder="Enter display name"
       />
 
-      {/* Avatar container with edit (pencil) icon overlay */}
+      {/* Avatar container with pencil icon overlay */}
       <View style={styles.avatarContainer}>
         {photoUri ? (
           <Image source={{ uri: photoUri }} style={theme.previewImage} />
@@ -122,16 +138,18 @@ export function EditProfileModal({
         </TouchableOpacity>
       </View>
 
-      {/* Cancel/Save buttons */}
+      {/* Render Cancel button conditionally */}
       <View style={theme.buttonRow}>
-        <Button
-          title="Cancel"
-          onPress={handleCancel}
-          color={theme.buttonSecondary.backgroundColor}
-        />
+        {showCancel && (
+          <Button
+            title="Cancel"
+            onPress={handleCancel}
+            color={theme.buttonSecondary.backgroundColor}
+          />
+        )}
         <Button
           title="Save"
-          onPress={() => onSave(displayName, photoUri)}
+          onPress={handleSave}
           color={theme.buttonPrimary.backgroundColor}
         />
       </View>
@@ -149,8 +167,8 @@ const styles = StyleSheet.create({
   },
   editIconContainer: {
     position: 'absolute',
-    bottom: 5,  
-    right: 10,  
+    bottom: 5,
+    right: 10,
     backgroundColor: 'crimson',
     borderRadius: 20,
     paddingVertical: 6,
