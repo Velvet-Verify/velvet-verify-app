@@ -1,26 +1,38 @@
 // app/(tabs)/index.tsx
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Button, Image, SafeAreaView, Text, View, Alert } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/src/context/AuthContext';
-import { useRouter } from 'expo-router';
-import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
-import { firebaseApp } from '@/src/firebase/config';
-import { computeHashedId } from '@/src/utils/hash'; // Updated import
-import * as ImagePicker from 'expo-image-picker';
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import DefaultAvatar from '@/components/DefaultAvatar';
-import SubmitTestResults from '@/components/SubmitTestResults';
-import { useStdis } from '@/hooks/useStdis';
-import { useTheme } from 'styled-components/native';
-import { ThemedModal } from '@/components/ui/ThemedModal';
-import { ProfileHeader } from '@/components/ui/ProfileHeader';
-import { HealthStatusArea } from '@/components/ui/HealthStatusArea';
-import { EditProfileModal } from '@/components/ui/EditProfileModal';
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Button,
+  SafeAreaView,
+  Text,
+  View,
+  Alert,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from "@/src/context/AuthContext";
+import { useRouter } from "expo-router";
+import { getFirestore, doc, getDoc, updateDoc } from "firebase/firestore";
+import { firebaseApp } from "@/src/firebase/config";
+import * as ImagePicker from "expo-image-picker";
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
+import SubmitTestResults from "@/components/SubmitTestResults";
+import { useStdis } from "@/hooks/useStdis";
+import { useTheme } from "styled-components/native";
+import { ThemedModal } from "@/components/ui/ThemedModal";
+import { ProfileHeader } from "@/components/ui/ProfileHeader";
+import { HealthStatusArea } from "@/components/ui/HealthStatusArea";
+import { EditProfileModal } from "@/components/ui/EditProfileModal";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 export default function HomeScreen() {
   const theme = useTheme();
-  const { user, suuid, logout } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const db = getFirestore(firebaseApp);
   const storage = getStorage(firebaseApp);
@@ -28,78 +40,99 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
   const [healthStatuses, setHealthStatuses] = useState<{ [key: string]: any } | null>(null);
-
-  // Modal state for the combined Edit Profile modal
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
-  // (Keep Submit Test Results modal state if you still use it)
   const [submitTestModalVisible, setSubmitTestModalVisible] = useState(false);
-
   const { stdis, loading: stdisLoading } = useStdis();
 
-  // Load public profile on mount
+  // Initialize Firebase Functions with your FirebaseApp.
+  const functionsInstance = getFunctions(firebaseApp);
+  const computeHashedIdCF = httpsCallable(functionsInstance, "computeHashedId");
+
+  // Load public profile on mount.
   useEffect(() => {
     async function loadProfile() {
-      if (user && suuid) {
-        // Compute the public profile hash using the new function.
-        const psuuid = await computeHashedId('profile');
-        // console.log("Computed PSUUID in loadProfile:", psuuid);
-        const profileDocRef = doc(db, 'publicProfile', psuuid);
-        const docSnap = await getDoc(profileDocRef);
-        if (!docSnap.exists()) {
-          router.replace('/ProfileSetup');
-        } else {
-          setProfileData(docSnap.data());
-          setLoading(false);
+      if (user) {
+        // console.log("User is authenticated:", user.uid);
+        try {
+          // Force token refresh and log token snippet.
+          const token = await user.getIdToken(true);
+          // console.log("Refreshed token:", token ? token.slice(0, 20) + "..." : "none");
+
+          // Call the cloud function to compute the public profile hash.
+          const result = await computeHashedIdCF({ hashType: "profile" });
+          const psuuid = result.data.hashedId;
+          // console.log("Computed PSUUID in loadProfile:", psuuid);
+          const profileDocRef = doc(db, "publicProfile", psuuid);
+          const docSnap = await getDoc(profileDocRef);
+          if (!docSnap.exists()) {
+            router.replace("/ProfileSetup");
+          } else {
+            setProfileData(docSnap.data());
+            setLoading(false);
+          }
+        } catch (error: any) {
+          console.error("Error loading profile:", error);
+          Alert.alert("Error", error.message);
         }
+      } else {
+        // console.log("User not authenticated yet.");
       }
     }
     loadProfile();
-  }, [user, suuid, db, router]);
+  }, [user, db, router]);
 
-  // Refresh health statuses for each STDI
+  // Refresh health statuses for each STDI.
   const refreshHealthStatuses = async () => {
-    if (user && suuid && stdis && stdis.length > 0) {
-      // Compute the health status hash using the new function.
-      const hsUUID = await computeHashedId('health');
-      // console.log("Computed HSUUID in refreshHealthStatuses:", hsUUID);
-      const hsData: { [key: string]: any } = {};
-      await Promise.all(
-        stdis.map(async (stdi) => {
-          const hsDocId = `${hsUUID}_${stdi.id}`;
-          const hsDocRef = doc(db, 'healthStatus', hsDocId);
-          const hsDocSnap = await getDoc(hsDocRef);
-          if (hsDocSnap.exists()) {
-            hsData[stdi.id] = hsDocSnap.data();
-          }
-        })
-      );
-      setHealthStatuses(hsData);
+    if (user && stdis && stdis.length > 0) {
+      try {
+        await user.getIdToken(true);
+        const result = await computeHashedIdCF({ hashType: "health" });
+        const hsUUID = result.data.hashedId;
+        // console.log("Computed HSUUID in refreshHealthStatuses:", hsUUID);
+        const hsData: { [key: string]: any } = {};
+        await Promise.all(
+          stdis.map(async (stdi) => {
+            const hsDocId = `${hsUUID}_${stdi.id}`;
+            const hsDocRef = doc(db, "healthStatus", hsDocId);
+            const hsDocSnap = await getDoc(hsDocRef);
+            if (hsDocSnap.exists()) {
+              hsData[stdi.id] = hsDocSnap.data();
+            }
+          })
+        );
+        setHealthStatuses(hsData);
+      } catch (error: any) {
+        console.error("Error refreshing health statuses:", error);
+      }
     }
   };
 
   useEffect(() => {
     refreshHealthStatuses();
-  }, [user, suuid, stdis, db]);
+  }, [user, stdis, db]);
 
   const handleLogout = async () => {
     try {
       await logout();
-      router.replace('/Login');
+      router.replace("/Login");
     } catch (error) {
-      console.error('Logout failed:', error);
+      console.error("Logout failed:", error);
     }
   };
 
-  // Combined update profile function for EditProfileModal
-  const handleUpdateProfile = async (updatedDisplayName: string, updatedPhotoUri: string) => {
+  // Combined update profile function for EditProfileModal.
+  const handleUpdateProfile = async (
+    updatedDisplayName: string,
+    updatedPhotoUri: string
+  ) => {
     try {
-      // Compute the public profile hash using the new function.
-      const psuuid = await computeHashedId('profile');
+      await user.getIdToken(true);
+      const result = await computeHashedIdCF({ hashType: "profile" });
+      const psuuid = result.data.hashedId;
       // console.log("Computed PSUUID in handleUpdateProfile:", psuuid);
-      const profileDocRef = doc(db, 'publicProfile', psuuid);
+      const profileDocRef = doc(db, "publicProfile", psuuid);
       let finalPhotoUrl = updatedPhotoUri;
 
-      // If the photo has changed and is non-empty, update storage
       if (updatedPhotoUri !== profileData?.imageUrl) {
         if (updatedPhotoUri) {
           if (profileData?.imageUrl) {
@@ -107,7 +140,7 @@ export default function HomeScreen() {
               const oldRef = ref(storage, `profileImages/${psuuid}.jpg`);
               await deleteObject(oldRef);
             } catch (error) {
-              console.error('Error deleting old image:', error);
+              console.error("Error deleting old image:", error);
             }
           }
           const response = await fetch(updatedPhotoUri);
@@ -116,7 +149,7 @@ export default function HomeScreen() {
           await uploadBytes(storageRef, blob);
           finalPhotoUrl = await getDownloadURL(storageRef);
         } else {
-          finalPhotoUrl = '';
+          finalPhotoUrl = "";
         }
       }
 
@@ -124,19 +157,23 @@ export default function HomeScreen() {
         displayName: updatedDisplayName,
         imageUrl: finalPhotoUrl,
       });
-      setProfileData({ ...profileData, displayName: updatedDisplayName, imageUrl: finalPhotoUrl });
+      setProfileData({
+        ...profileData,
+        displayName: updatedDisplayName,
+        imageUrl: finalPhotoUrl,
+      });
       setEditProfileModalVisible(false);
     } catch (error: any) {
-      console.error('Error updating profile:', error);
-      Alert.alert('Error', error.message);
+      console.error("Error updating profile:", error);
+      Alert.alert("Error", error.message);
     }
   };
 
-  // Functions for editing profile photo (pass-through to the modal)
+  // Functions for editing profile photo.
   const pickImageFromGallery = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Gallery permission is needed!');
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Gallery permission is needed!");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -144,31 +181,38 @@ export default function HomeScreen() {
       quality: 0.7,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      // For the modal, you may choose to update its local state.
-      // Here we simply pass the action to the modal via callbacks.
-      // (You might lift the photo state if needed.)
+      // Update local state for photo as needed.
     }
   };
 
   const takePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'Camera permission is needed!');
+    if (status !== "granted") {
+      Alert.alert("Permission required", "Camera permission is needed!");
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
       quality: 0.7,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
-      // Same as above.
+      // Update local state for photo as needed.
     }
   };
 
   if (loading) {
     return (
       <SafeAreaView style={theme.container}>
-        <View style={{ justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <ActivityIndicator size="large" color={theme.buttonPrimary.backgroundColor} />
+        <View
+          style={{
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          <ActivityIndicator
+            size="large"
+            color={theme.buttonPrimary.backgroundColor}
+          />
         </View>
       </SafeAreaView>
     );
@@ -176,7 +220,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={theme.container}>
-      {/* Profile Header with combined "Edit Profile" and "Submit Test Result" links */}
+      {/* Profile Header */}
       <ProfileHeader
         displayName={profileData?.displayName}
         imageUrl={profileData?.imageUrl}
@@ -185,17 +229,29 @@ export default function HomeScreen() {
       />
 
       {/* Health Status Area */}
-      <View style={{ paddingLeft: 20, paddingTop: 20, alignItems: 'center', flex: 1, paddingBottom: insets.bottom + 75 }}>
+      <View
+        style={{
+          paddingLeft: 20,
+          paddingTop: 20,
+          alignItems: "center",
+          flex: 1,
+          paddingBottom: insets.bottom + 75,
+        }}
+      >
         <Text style={theme.title}>Health Status</Text>
         <HealthStatusArea stdis={stdis} statuses={healthStatuses} />
       </View>
 
-      {/* Logout Button positioned at top right */}
-      <View style={{ position: 'absolute', top: insets.top + 10, right: 10 }}>
-        <Button title="Logout" color={theme.buttonPrimary.backgroundColor} onPress={handleLogout} />
+      {/* Logout Button */}
+      <View style={{ position: "absolute", top: insets.top + 10, right: 10 }}>
+        <Button
+          title="Logout"
+          color={theme.buttonPrimary.backgroundColor}
+          onPress={handleLogout}
+        />
       </View>
 
-      {/* Combined Edit Profile Modal */}
+      {/* Edit Profile Modal */}
       <EditProfileModal
         visible={editProfileModalVisible}
         initialDisplayName={profileData?.displayName}
@@ -208,11 +264,17 @@ export default function HomeScreen() {
       />
 
       {/* Submit Test Results Modal */}
-      <ThemedModal visible={submitTestModalVisible} useBlur onRequestClose={() => setSubmitTestModalVisible(false)}>
-        <SubmitTestResults onClose={() => {
-          setSubmitTestModalVisible(false);
-          refreshHealthStatuses();
-        }} />
+      <ThemedModal
+        visible={submitTestModalVisible}
+        useBlur
+        onRequestClose={() => setSubmitTestModalVisible(false)}
+      >
+        <SubmitTestResults
+          onClose={() => {
+            setSubmitTestModalVisible(false);
+            refreshHealthStatuses();
+          }}
+        />
       </ThemedModal>
     </SafeAreaView>
   );
