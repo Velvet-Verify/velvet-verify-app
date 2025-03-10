@@ -1,4 +1,5 @@
 // functions/src/index.ts
 import {computeHashedId} from "./computeHashedId";
+import {newConnection} from "./NewConnection";
 
-export {computeHashedId};
+export {computeHashedId, newConnection};
