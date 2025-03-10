@@ -7,7 +7,7 @@ import {
 } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
-import {STANDARD_HASH_KEY} from "./params";
+import {STANDARD_HASH_KEY} from "../params";
 
 // Create callable options with the secrets included
 const callableOptions: CallableOptions = {
