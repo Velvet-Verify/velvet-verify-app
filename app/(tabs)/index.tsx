@@ -47,39 +47,27 @@ export default function HomeScreen() {
   // Initialize Firebase Functions with your FirebaseApp.
   const functionsInstance = getFunctions(firebaseApp);
   const computeHashedIdCF = httpsCallable(functionsInstance, "computeHashedId");
+  const getPublicProfileCF = httpsCallable(functionsInstance, "getPublicProfile");
 
   // Load public profile on mount.
   useEffect(() => {
     async function loadProfile() {
       if (user) {
-        // console.log("User is authenticated:", user.uid);
         try {
-          // Force token refresh and log token snippet.
-          const token = await user.getIdToken(true);
-          // console.log("Refreshed token:", token ? token.slice(0, 20) + "..." : "none");
-
-          // Call the cloud function to compute the public profile hash.
-          const result = await computeHashedIdCF({ hashType: "profile" });
-          const psuuid = result.data.hashedId;
-          // console.log("Computed PSUUID in loadProfile:", psuuid);
-          const profileDocRef = doc(db, "publicProfile", psuuid);
-          const docSnap = await getDoc(profileDocRef);
-          if (!docSnap.exists()) {
-            router.replace("/ProfileSetup");
-          } else {
-            setProfileData(docSnap.data());
-            setLoading(false);
-          }
+          // Call the cloud function to retrieve the public profile data.
+          const result = await getPublicProfileCF({});
+          const profile = result.data;
+          // We now directly use the public profile data returned by the cloud function.
+          setProfileData(profile);
+          setLoading(false);
         } catch (error: any) {
           console.error("Error loading profile:", error);
           Alert.alert("Error", error.message);
         }
-      } else {
-        // console.log("User not authenticated yet.");
       }
     }
     loadProfile();
-  }, [user, db, router]);
+  }, [user, router]);
 
   // Refresh health statuses for each STDI.
   const refreshHealthStatuses = async () => {
@@ -88,7 +76,6 @@ export default function HomeScreen() {
         await user.getIdToken(true);
         const result = await computeHashedIdCF({ hashType: "health" });
         const hsUUID = result.data.hashedId;
-        // console.log("Computed HSUUID in refreshHealthStatuses:", hsUUID);
         const hsData: { [key: string]: any } = {};
         await Promise.all(
           stdis.map(async (stdi) => {
@@ -129,7 +116,6 @@ export default function HomeScreen() {
       await user.getIdToken(true);
       const result = await computeHashedIdCF({ hashType: "profile" });
       const psuuid = result.data.hashedId;
-      // console.log("Computed PSUUID in handleUpdateProfile:", psuuid);
       const profileDocRef = doc(db, "publicProfile", psuuid);
       let finalPhotoUrl = updatedPhotoUri;
 

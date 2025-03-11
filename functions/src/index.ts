@@ -3,3 +3,4 @@ import {computeHashedId} from "./computeHashedId";
 
 export {computeHashedId};
 export * from "./connections";
+export * from "./publicProfile";

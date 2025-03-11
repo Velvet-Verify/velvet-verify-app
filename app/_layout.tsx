@@ -3,8 +3,24 @@ import React, { useEffect, useState } from 'react';
 import { Slot, useRouter } from 'expo-router';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemeProvider } from 'styled-components/native';
 import Themes from '@/constants/Themes';
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <SafeAreaProvider>
+        <ThemeProvider theme={Themes.light}>
+          <AuthRedirect />
+          <SafeAreaView style={{ flex: 1 }}>
+            <Slot />
+          </SafeAreaView>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </AuthProvider>
+  );
+}
 
 function AuthRedirect() {
   const { user } = useAuth();
@@ -27,15 +43,4 @@ function AuthRedirect() {
   return null;
 }
 
-export default function RootLayout() {
-  return (
-    <AuthProvider>
-      <SafeAreaProvider>
-        <ThemeProvider theme={Themes.light}>
-          <AuthRedirect />
-          <Slot />
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </AuthProvider>
-  );
-}
+
