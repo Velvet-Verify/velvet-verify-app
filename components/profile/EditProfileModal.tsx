@@ -11,8 +11,8 @@ import {
   StyleSheet 
 } from 'react-native';
 import { useTheme } from 'styled-components/native';
-import { ThemedModal } from './ThemedModal';
-import DefaultAvatar from '@/components/DefaultAvatar';
+import { ThemedModal } from '../ui/ThemedModal';
+import DefaultAvatar from '@/components/common/DefaultAvatar';
 import { FontAwesome } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 

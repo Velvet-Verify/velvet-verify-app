@@ -21,13 +21,13 @@ import {
   getDownloadURL,
   deleteObject,
 } from "firebase/storage";
-import SubmitTestResults from "@/components/SubmitTestResults";
+import SubmitTestResults from "@/components/health/SubmitTestResults";
 import { useStdis } from "@/hooks/useStdis";
 import { useTheme } from "styled-components/native";
 import { ThemedModal } from "@/components/ui/ThemedModal";
-import { ProfileHeader } from "@/components/ui/ProfileHeader";
-import { HealthStatusArea } from "@/components/ui/HealthStatusArea";
-import { EditProfileModal } from "@/components/ui/EditProfileModal";
+import { ProfileHeader } from "@/components/profile/ProfileHeader";
+import { HealthStatusArea } from "@/components/health/HealthStatusArea";
+import { EditProfileModal } from "@/components/profile/EditProfileModal";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 export default function HomeScreen() {

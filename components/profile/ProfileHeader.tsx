@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Image } from 'react-native';
 import { useTheme } from 'styled-components/native';
-import DefaultAvatar from '@/components/DefaultAvatar';
+import DefaultAvatar from '@/components/common/DefaultAvatar';
 
 type ProfileHeaderProps = {
   displayName: string;

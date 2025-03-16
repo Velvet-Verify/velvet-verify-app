@@ -8,7 +8,7 @@ import { firebaseApp } from "@/src/firebase/config";
 import { useAuth } from "@/src/context/AuthContext";
 import { getFunctions, httpsCallable } from "firebase/functions"; // New import for cloud functions
 import { useTheme } from "styled-components/native";
-import { EditProfileModal } from "@/components/ui/EditProfileModal";
+import { EditProfileModal } from "@/components/profile/EditProfileModal";
 
 export default function ProfileSetup() {
   const theme = useTheme();

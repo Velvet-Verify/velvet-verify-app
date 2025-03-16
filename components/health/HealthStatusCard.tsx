@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
-import { ResultIcon, ResultType } from './ResultIcon';
+import { ResultIcon, ResultType } from '../ui/ResultIcon';
 
 type HealthStatusCardProps = {
   name: string;         // Full display name for the STDI

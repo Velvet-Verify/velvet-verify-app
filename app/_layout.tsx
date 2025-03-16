@@ -1,46 +1,47 @@
 // app/_layout.tsx
-import React, { useEffect, useState } from 'react';
-import { Slot, useRouter } from 'expo-router';
+import React from 'react';
+import { Slot } from 'expo-router';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { useSegments, useRouter } from 'expo-router';
 import { ThemeProvider } from 'styled-components/native';
 import Themes from '@/constants/Themes';
 
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <SafeAreaProvider>
-        <ThemeProvider theme={Themes.light}>
-          <AuthRedirect />
-          <SafeAreaView style={{ flex: 1 }}>
-            <Slot />
-          </SafeAreaView>
-        </ThemeProvider>
-      </SafeAreaProvider>
+      <InnerLayout />
     </AuthProvider>
   );
 }
 
-function AuthRedirect() {
+function InnerLayout() {
+  // Now we can safely call useAuth() because AuthProvider is one level above
   const { user } = useAuth();
+  const segments = useSegments();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-    if (user && user.emailVerified) {
-      router.replace('/');
+  // Example route-guard effect
+  React.useEffect(() => {
+    const inAuthGroup = segments[0] === '(auth)';
+    if (!user || !user.emailVerified) {
+      if (!inAuthGroup) {
+        router.replace('/Login');
+      }
     } else {
-      router.replace('/Login');
+      if (inAuthGroup) {
+        router.replace('/');
+      }
     }
-  }, [mounted, user, router]);
+  }, [user, segments, router]);
 
-  return null;
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider theme={Themes.light}>
+        <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+          <Slot />
+        </SafeAreaView>
+      </ThemeProvider>
+    </SafeAreaProvider>
+  );
 }
-
-

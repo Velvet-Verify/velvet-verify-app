@@ -1,13 +1,14 @@
 // app/(tabs)/connections.tsx
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, Image } from "react-native";
+import { View, Text, FlatList, Image, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "styled-components/native";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { firebaseApp } from "@/src/firebase/config";
 import { useAuth } from "@/src/context/AuthContext";
 import { ThemedButton } from "@/components/ui/ThemedButton";
-import { NewConnection } from "@/components/ui/NewConnection";
+import { NewConnection } from "@/components/connections/NewConnection";
+import { ConnectionItem, Connection } from "@/components/connections/ConnectionItem";
 
 interface Connection {
   displayName: string | null;
@@ -24,6 +25,7 @@ export default function ConnectionsScreen() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [newConnectionModalVisible, setNewConnectionModalVisible] = useState(false);
+
   const functionsInstance = getFunctions(firebaseApp);
   const getConnectionsCF = httpsCallable(functionsInstance, "getConnections");
   const { user } = useAuth();
@@ -45,15 +47,25 @@ export default function ConnectionsScreen() {
     }
   }, [user]);
 
-  // Use a centered container if no connections, otherwise use standard container with top padding.
-  const containerStyle =
-    connections.length === 0
-      ? [theme.centerContainer, { paddingTop: insets.top + 20 }]
-      : [theme.container, { paddingTop: insets.top + 20 }];
+  // Conditionally apply bottom padding only on iOS, so the button appears above the "floating" tab bar.
+  const isIOS = Platform.OS === "ios";
+  const bottomPadding = isIOS ? insets.bottom + 60 : 15; 
+  // ↑ Adjust the +60 as desired to push the button higher/lower on iOS
+
+  // For the main container, just use your theme container + conditional bottom padding
+  const containerStyle = connections.length === 0
+    ? [
+        theme.centerContainer,
+        { paddingBottom: bottomPadding }
+      ]
+    : [
+        theme.container,
+        { paddingBottom: bottomPadding }
+      ];
 
   if (loading) {
     return (
-      <View style={[theme.centerContainer, { paddingTop: insets.top + 20 }]}>
+      <View style={[theme.centerContainer]}>
         <Text style={theme.title}>Loading connections...</Text>
       </View>
     );
@@ -62,58 +74,23 @@ export default function ConnectionsScreen() {
   return (
     <View style={containerStyle}>
       <Text style={theme.title}>Your Connections</Text>
+
       {connections.length === 0 ? (
         <Text style={theme.bodyText}>No connections found.</Text>
       ) : (
         <FlatList
           data={connections}
           keyExtractor={(_, index) => index.toString()}
-          renderItem={({ item }) => (
-            <View
-              style={{
-                marginVertical: 8,
-                padding: 8,
-                borderWidth: 1,
-                borderColor: theme.input.borderColor,
-                borderRadius: 4,
-              }}
-            >
-              <Text style={theme.bodyText}>
-                From: {item.displayName || "Unknown"}
-              </Text>
-              {item.imageUrl ? (
-                <Image
-                  source={{ uri: item.imageUrl }}
-                  style={{ width: 50, height: 50, borderRadius: 25 }}
-                />
-              ) : null}
-              <Text style={theme.bodyText}>
-                Created:{" "}
-                {item.createdAt
-                  ? new Date(item.createdAt).toLocaleString()
-                  : "N/A"}
-              </Text>
-              <Text style={theme.bodyText}>
-                Expires:{" "}
-                {item.expiresAt
-                  ? new Date(item.expiresAt).toLocaleString()
-                  : "N/A"}
-              </Text>
-              <Text style={theme.bodyText}>
-                Level: {item.connectionLevel}
-              </Text>
-              <Text style={theme.bodyText}>
-                Status: {item.connectionStatus}
-              </Text>
-            </View>
-          )}
+          renderItem={({ item }) => <ConnectionItem connection={item} />}
         />
       )}
+
       <ThemedButton
         title="New Connection"
         variant="primary"
         onPress={() => setNewConnectionModalVisible(true)}
       />
+
       <NewConnection
         visible={newConnectionModalVisible}
         onClose={() => setNewConnectionModalVisible(false)}

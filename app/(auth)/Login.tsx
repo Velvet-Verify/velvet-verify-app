@@ -46,7 +46,7 @@ export default function LoginScreen() {
         color={theme.buttonPrimary.backgroundColor}
       />
 
-      <View style={{ marginTop: 20, alignItems: 'center' }}>
+      <View style={{ alignItems: 'center' }}>
         <Text>Don't have an account?</Text>
         <Button
           title="Go to Sign Up"
