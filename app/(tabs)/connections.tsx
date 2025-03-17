@@ -1,6 +1,6 @@
 // app/(tabs)/connections.tsx
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, Image, Platform } from "react-native";
+import { View, Text, FlatList, Image, Platform, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "styled-components/native";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -8,6 +8,7 @@ import { firebaseApp } from "@/src/firebase/config";
 import { useAuth } from "@/src/context/AuthContext";
 import { ThemedButton } from "@/components/ui/ThemedButton";
 import { NewConnection } from "@/components/connections/NewConnection";
+import { ConnectionDetailsModal } from "@/components/connections/ConnectionDetailsModal";
 import { ConnectionItem, Connection } from "@/components/connections/ConnectionItem";
 
 interface Connection {
@@ -26,6 +27,10 @@ export default function ConnectionsScreen() {
   const [loading, setLoading] = useState(true);
   const [newConnectionModalVisible, setNewConnectionModalVisible] = useState(false);
 
+  // State for the Connection Details Modal
+  const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
+  const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+
   const functionsInstance = getFunctions(firebaseApp);
   const getConnectionsCF = httpsCallable(functionsInstance, "getConnections");
   const { user } = useAuth();
@@ -34,7 +39,7 @@ export default function ConnectionsScreen() {
     async function fetchConnections() {
       try {
         const result = await getConnectionsCF({});
-        // Assume result.data is an array of Connection objects.
+        // Assume result.data is an array of Connection objects
         setConnections(result.data);
       } catch (error) {
         console.error("Error fetching connections:", error);
@@ -47,21 +52,21 @@ export default function ConnectionsScreen() {
     }
   }, [user]);
 
-  // Conditionally apply bottom padding only on iOS, so the button appears above the "floating" tab bar.
+  // Conditionally apply bottom padding only on iOS, so the button appears above the floating tab bar
   const isIOS = Platform.OS === "ios";
-  const bottomPadding = isIOS ? insets.bottom + 60 : 15; 
-  // ↑ Adjust the +60 as desired to push the button higher/lower on iOS
+  const bottomPadding = isIOS ? insets.bottom + 60 : 15;
 
-  // For the main container, just use your theme container + conditional bottom padding
-  const containerStyle = connections.length === 0
-    ? [
-        theme.centerContainer,
-        { paddingBottom: bottomPadding }
-      ]
-    : [
-        theme.container,
-        { paddingBottom: bottomPadding }
-      ];
+  const containerStyle =
+    connections.length === 0
+      ? [theme.centerContainer, { paddingBottom: bottomPadding }]
+      : [theme.container, { paddingBottom: bottomPadding }];
+
+  // Called when a user taps on a connection in the list
+  function handlePressConnection(connection: Connection) {
+    // For debugging, you could do: console.log("Pressed:", connection);
+    setSelectedConnection(connection);
+    setDetailsModalVisible(true);
+  }
 
   if (loading) {
     return (
@@ -81,7 +86,14 @@ export default function ConnectionsScreen() {
         <FlatList
           data={connections}
           keyExtractor={(_, index) => index.toString()}
-          renderItem={({ item }) => <ConnectionItem connection={item} />}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => handlePressConnection(item)}
+            >
+              <ConnectionItem connection={item} />
+            </TouchableOpacity>
+          )}
         />
       )}
 
@@ -95,6 +107,19 @@ export default function ConnectionsScreen() {
         visible={newConnectionModalVisible}
         onClose={() => setNewConnectionModalVisible(false)}
       />
+
+      {selectedConnection && (
+        <ConnectionDetailsModal
+          visible={detailsModalVisible}
+          onClose={() => {
+            setDetailsModalVisible(false);
+            setSelectedConnection(null);
+          }}
+          connection={selectedConnection}
+          // Simple logic for "isRecipient" in this example:
+          isRecipient={selectedConnection.connectionStatus === 0}
+        />
+      )}
     </View>
   );
 }
