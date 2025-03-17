@@ -1,6 +1,6 @@
 // app/(tabs)/connections.tsx
 import React, { useEffect, useState } from "react";
-import { View, Text, FlatList, Image, Platform, TouchableOpacity } from "react-native";
+import { View, Text, FlatList, Platform, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "styled-components/native";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -10,15 +10,6 @@ import { ThemedButton } from "@/components/ui/ThemedButton";
 import { NewConnection } from "@/components/connections/NewConnection";
 import { ConnectionDetailsModal } from "@/components/connections/ConnectionDetailsModal";
 import { ConnectionItem, Connection } from "@/components/connections/ConnectionItem";
-
-interface Connection {
-  displayName: string | null;
-  imageUrl: string | null;
-  createdAt: string | null;
-  expiresAt: string | null;
-  connectionLevel: number;
-  connectionStatus: number;
-}
 
 export default function ConnectionsScreen() {
   const theme = useTheme();
@@ -35,20 +26,24 @@ export default function ConnectionsScreen() {
   const getConnectionsCF = httpsCallable(functionsInstance, "getConnections");
   const { user } = useAuth();
 
-  useEffect(() => {
-    async function fetchConnections() {
-      try {
-        const result = await getConnectionsCF({});
-        // Assume result.data is an array of Connection objects
+  /** Re-fetch or refresh the connections from Firestore/CF */
+  async function refreshConnections() {
+    try {
+      setLoading(true);
+      const result = await getConnectionsCF({});
+      if (Array.isArray(result.data)) {
         setConnections(result.data);
-      } catch (error) {
-        console.error("Error fetching connections:", error);
-      } finally {
-        setLoading(false);
       }
+    } catch (error) {
+      console.error("Error fetching connections:", error);
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => {
     if (user) {
-      fetchConnections();
+      refreshConnections();
     }
   }, [user]);
 
@@ -61,9 +56,7 @@ export default function ConnectionsScreen() {
       ? [theme.centerContainer, { paddingBottom: bottomPadding }]
       : [theme.container, { paddingBottom: bottomPadding }];
 
-  // Called when a user taps on a connection in the list
   function handlePressConnection(connection: Connection) {
-    // For debugging, you could do: console.log("Pressed:", connection);
     setSelectedConnection(connection);
     setDetailsModalVisible(true);
   }
@@ -87,10 +80,7 @@ export default function ConnectionsScreen() {
           data={connections}
           keyExtractor={(_, index) => index.toString()}
           renderItem={({ item }) => (
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => handlePressConnection(item)}
-            >
+            <TouchableOpacity activeOpacity={0.7} onPress={() => handlePressConnection(item)}>
               <ConnectionItem connection={item} />
             </TouchableOpacity>
           )}
@@ -116,8 +106,12 @@ export default function ConnectionsScreen() {
             setSelectedConnection(null);
           }}
           connection={selectedConnection}
-          // Simple logic for "isRecipient" in this example:
           isRecipient={selectedConnection.connectionStatus === 0}
+          /**
+           * Pass the refresh callback here:
+           * We'll call it in the modal once accept/reject is done.
+           */
+          onStatusUpdated={refreshConnections}
         />
       )}
     </View>

@@ -115,9 +115,9 @@ export const lightTheme = StyleSheet.create({
     borderBottomColor: Colors.light.border,
   },
   profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
   },
   profileTextContainer: {
     flex: 1,

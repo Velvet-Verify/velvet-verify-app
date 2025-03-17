@@ -212,6 +212,7 @@ export default function HomeScreen() {
         imageUrl={profileData?.imageUrl}
         onEditProfile={() => setEditProfileModalVisible(true)}
         onSubmitTest={() => setSubmitTestModalVisible(true)}
+        onLogout={handleLogout}
       />
 
       {/* Health Status Area */}
@@ -226,15 +227,6 @@ export default function HomeScreen() {
       >
         <Text style={theme.title}>Health Status</Text>
         <HealthStatusArea stdis={stdis} statuses={healthStatuses} />
-      </View>
-
-      {/* Logout Button */}
-      <View style={{ position: "absolute", top: insets.top + 10, right: 10 }}>
-        <Button
-          title="Logout"
-          color={theme.buttonPrimary.backgroundColor}
-          onPress={handleLogout}
-        />
       </View>
 
       {/* Edit Profile Modal */}

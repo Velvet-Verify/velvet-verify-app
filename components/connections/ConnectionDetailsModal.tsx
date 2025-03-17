@@ -1,22 +1,26 @@
 // components/connections/ConnectionDetailsModal.tsx
-import React, { useEffect, useState } from 'react';
-import { View, Text, Image, StyleSheet, Button, Alert, TouchableOpacity } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, Button, Alert } from 'react-native';
 import { useTheme } from 'styled-components/native';
-import { useAuth } from '@/src/context/AuthContext';
-import { doc, getDoc } from 'firebase/firestore';
-import { firebaseApp } from '@/src/firebase/config';
 import { ThemedModal } from '@/components/ui/ThemedModal';
 import Colors from '@/constants/Colors';
-import { useColorScheme } from 'react-native'; // Or your custom hook if you prefer
+import { useColorScheme } from 'react-native';
+import { useLookups } from '@/src/context/LookupContext';
+import { ProfileHeader } from '@/components/profile/ProfileHeader';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { firebaseApp } from '@/src/firebase/config';
+
+const functionsInstance = getFunctions(firebaseApp);
+const updateConnectionStatusCF = httpsCallable(functionsInstance, "updateConnectionStatus");
 
 export interface Connection {
+  connectionDocId: string; // from the getConnections CF
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;
   expiresAt: string | null;
   connectionLevel: number;
   connectionStatus: number;
-  // Possibly fields like senderSUUID, recipientSUUID to know if user is the recipient
 }
 
 interface ConnectionDetailsModalProps {
@@ -24,6 +28,8 @@ interface ConnectionDetailsModalProps {
   onClose: () => void;
   connection: Connection;
   isRecipient: boolean;
+  /** Called after we successfully accept/reject a connection, so the parent screen can refresh. */
+  onStatusUpdated?: () => void;
 }
 
 export function ConnectionDetailsModal({
@@ -31,102 +37,85 @@ export function ConnectionDetailsModal({
   onClose,
   connection,
   isRecipient,
+  onStatusUpdated,
 }: ConnectionDetailsModalProps) {
   const theme = useTheme();
-  const { user } = useAuth(); // If needed for further logic
-  const db = firebaseApp.firestore?.() ?? null; // or getFirestore(firebaseApp) if needed
-  const [levelName, setLevelName] = useState<string>('');
-  const [statusName, setStatusName] = useState<string>('');
-  const [levelDescription, setLevelDescription] = useState<string>('');
-  
   const colorScheme = useColorScheme() ?? 'light';
-  const xIconColor = Colors[colorScheme].icon; // charcoal color from Colors
+  const { connectionLevels, connectionStatuses } = useLookups();
 
-  // On mount/fetch: retrieve doc from connectionLevels/<connectionLevel> and connectionStatuses/<connectionStatus>
-  useEffect(() => {
-    if (!db || !connection) return;
+  const lvlDoc = connectionLevels[String(connection.connectionLevel)];
+  const statusDoc = connectionStatuses[String(connection.connectionStatus)];
 
-    async function fetchLevelAndStatus() {
-      try {
-        // 1) Load ConnectionLevel doc
-        const lvlRef = doc(db, 'connectionLevels', String(connection.connectionLevel));
-        const lvlSnap = await getDoc(lvlRef);
-        if (lvlSnap.exists()) {
-          setLevelName(lvlSnap.data()?.name ?? '');
-          setLevelDescription(lvlSnap.data()?.description ?? '');
-        }
+  const levelName = lvlDoc?.name ?? `Level ${connection.connectionLevel}`;
+  const levelDescription = lvlDoc?.description ?? '';
+  const statusName = statusDoc?.name ?? `Status ${connection.connectionStatus}`;
 
-        // 2) Load ConnectionStatus doc
-        const statRef = doc(db, 'connectionStatuses', String(connection.connectionStatus));
-        const statSnap = await getDoc(statRef);
-        if (statSnap.exists()) {
-          setStatusName(statSnap.data()?.name ?? '');
-        }
-      } catch (err) {
-        console.error('Error fetching connection-level or status doc:', err);
+  // If connectionStatus=0 && connectionLevel=2 && user is recipient => show accept/reject
+  const isPendingNew =
+    connection.connectionStatus === 0 &&
+    connection.connectionLevel === 2 &&
+    isRecipient;
+
+  async function handleAccept() {
+    try {
+      await updateConnectionStatusCF({
+        connectionDocId: connection.connectionDocId,
+        newStatus: 1, // 1 => Accept
+      });
+      Alert.alert('Connection updated', 'Status changed to Accepted (1).');
+
+      // Refresh the parent screen so it sees the new status
+      if (onStatusUpdated) {
+        onStatusUpdated();
       }
+      onClose();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to accept connection.');
     }
+  }
 
-    fetchLevelAndStatus();
-  }, [db, connection]);
+  async function handleReject() {
+    try {
+      await updateConnectionStatusCF({
+        connectionDocId: connection.connectionDocId,
+        newStatus: 2, // 2 => Reject
+      });
+      Alert.alert('Connection updated', 'Status changed to Rejected (2).');
 
-  // Avatar or placeholder
-  const avatarOrPlaceholder = connection.imageUrl ? (
-    <Image source={{ uri: connection.imageUrl }} style={styles.avatar} />
-  ) : (
-    <View style={[styles.avatar, { backgroundColor: '#ccc' }]} />
-  );
-
-  // Condition logic for "Accept/Reject"
-  const isPendingNew = connection.connectionStatus === 0 && connection.connectionLevel === 2 && isRecipient;
-
-  const handleAccept = () => {
-    Alert.alert('Accept clicked', 'Implement logic here (e.g. update Firestore).');
-  };
-
-  const handleReject = () => {
-    Alert.alert('Reject clicked', 'Implement logic here (e.g. update Firestore).');
-  };
+      // Refresh the parent screen so it sees the new status
+      if (onStatusUpdated) {
+        onStatusUpdated();
+      }
+      onClose();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to reject connection.');
+    }
+  }
 
   return (
     <ThemedModal visible={visible} onRequestClose={onClose} useBlur>
-      {/* Top-right "X" to close */}
-      <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-        <Text style={{ color: xIconColor, fontSize: 24 }}>X</Text>
-      </TouchableOpacity>
+      <ProfileHeader
+        displayName={connection.displayName || 'Unknown'}
+        imageUrl={connection.imageUrl || undefined}
+        onClose={onClose}
+        hideEditButtons={true}
+        connectionType={levelName}
+        connectionStatus={statusName}
+      />
 
-      {/* Top profile section */}
-      <View style={styles.topProfileContainer}>
-        {avatarOrPlaceholder}
-        <View style={styles.topTextContainer}>
-          <Text style={theme.title}>
-            {connection.displayName || 'Unknown'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Connection type on one line */}
-      <View style={{ marginBottom: 6 }}>
-        <Text style={theme.bodyText}>
-          Connection Type: {levelName || `Level ${connection.connectionLevel}`}
-        </Text>
-      </View>
-
-      {/* Connection status on another line */}
-      <View style={{ marginBottom: 10 }}>
-        <Text style={theme.bodyText}>
-          Status: {statusName || `Status ${connection.connectionStatus}`}
-        </Text>
-      </View>
-
-      {/* If pending & new & user is recipient => Accept/Reject row */}
       {isPendingNew && (
         <View style={styles.pendingContainer}>
           <Text style={[theme.bodyText, { fontWeight: 'bold', marginBottom: 10 }]}>
             User has initiated a connection request.
           </Text>
+
+          {!!levelDescription && (
+            <View style={{ marginBottom: 10 }}>
+              <Text style={theme.bodyText}>{levelDescription}</Text>
+            </View>
+          )}
+
           <View style={styles.buttonRow}>
-            {/* Reject on the left, Accept on the right */}
             <Button
               title="Reject"
               onPress={handleReject}
@@ -140,45 +129,18 @@ export function ConnectionDetailsModal({
           </View>
         </View>
       )}
-
-      {/* Show the level's description, if any */}
-      {levelDescription ? (
-        <View style={{ marginTop: 15 }}>
-          <Text style={theme.bodyText}>{levelDescription}</Text>
-        </View>
-      ) : null}
     </ThemedModal>
   );
 }
 
 const styles = StyleSheet.create({
-  closeButton: {
-    position: 'absolute',
-    top: 15,
-    right: 15,
-    zIndex: 999, // ensure above everything
-  },
-  topProfileContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    marginRight: 15,
-  },
-  topTextContainer: {
-    flex: 1,
-  },
   pendingContainer: {
-    marginVertical: 10,
+    marginTop: 25,
     alignItems: 'center',
   },
   buttonRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '60%', // some spacing for side-by-side
+    width: '60%',
   },
 });

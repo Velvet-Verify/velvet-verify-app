@@ -19,7 +19,11 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
+/**
+ * Extend this interface to include connectionDocId
+ */
 interface Connection {
+  connectionDocId: string; // <-- new: the doc's ID
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;
@@ -42,8 +46,8 @@ export const getConnections = onCall(
     // Compute the caller's standard hash (SUUID)
     const userSUUID = await computeHash("standard", request.auth.uid);
 
-    // Query connections where recipientSUUID equals the user's SUUID and
-    // connectionStatus is either 0 (pending) or 1 (accepted)
+    // Query connections where recipientSUUID equals the user's SUUID
+    // and connectionStatus is either 0 (pending) or 1 (accepted).
     const connectionsRef = db.collection("connections");
     const querySnapshot = await connectionsRef
       .where("recipientSUUID", "==", userSUUID)
@@ -51,12 +55,13 @@ export const getConnections = onCall(
       .get();
 
     const connections: Connection[] = [];
-    for (const doc of querySnapshot.docs) {
-      const data = doc.data();
+    for (const docSnap of querySnapshot.docs) {
+      const data = docSnap.data();
       const senderSUUID: string = data.senderSUUID;
 
       // Compute the PSUUID using the sender's standard hash.
-      // We pass an empty rawUid and the senderSUUID as input.
+      // Pass an empty rawUid and the senderSUUID as input => {
+      //   computeHash("profile", "", senderSUUID).}
       const psuuid = await computeHash("profile", "", senderSUUID);
 
       // Query the publicProfile collection using the PSUUID.
@@ -70,6 +75,7 @@ export const getConnections = onCall(
       }
 
       connections.push({
+        connectionDocId: docSnap.id, // <--- new field
         displayName,
         imageUrl,
         createdAt: data.createdAt ?
