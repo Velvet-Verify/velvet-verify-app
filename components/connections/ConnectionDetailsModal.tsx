@@ -10,6 +10,7 @@ import { getFunctions, httpsCallable, Functions } from 'firebase/functions';
 import { firebaseApp } from '@/src/firebase/config';
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { HealthStatusArea } from '@/components/health/HealthStatusArea';
+import { ConnectionManagement } from '@/components/connections/ConnectionManagement';
 
 export interface Connection {
   connectionDocId?: string;
@@ -67,6 +68,9 @@ export function ConnectionDetailsModal({
 
   const [remoteStatuses, setRemoteStatuses] = useState<{ [key: string]: any }>({});
   const [loadingHealth, setLoadingHealth] = useState(false);
+
+  // Local state to toggle between “health results” and “management”
+  const [showManagement, setShowManagement] = useState(false);
 
   // Decide if we show remote user’s health data
   const shouldShowHealth = connection.connectionStatus === 1 && connection.connectionLevel >= 2;
@@ -190,15 +194,24 @@ export function ConnectionDetailsModal({
     connection.connectionLevel === 2 &&
     isRecipient;
 
+  // For the “Manage <-> Results” toggle
+  // We only show it if connectionStatus == 1 (i.e. “active”)
+  const canManage = connection.connectionStatus === 1;
+  const manageLabel = showManagement ? "Results" : "Manage";
+  const handleManagePress = () => setShowManagement(prev => !prev);
+  
   return (
     <ThemedModal visible={visible} onRequestClose={onClose} useBlur>
       <ProfileHeader
         displayName={connection.displayName || 'Unknown'}
         imageUrl={connection.imageUrl || undefined}
         onClose={onClose}
-        hideEditButtons={true}
+        hideEditButtons={false}
         connectionType={levelName}
         connectionStatus={statusName}
+        showManageButton={canManage}
+        manageLabel={manageLabel}
+        onManagePress={handleManagePress}
       />
 
       {isPendingNew && (
@@ -226,7 +239,10 @@ export function ConnectionDetailsModal({
         </View>
       )}
 
-      {shouldShowHealth && (
+      
+
+      {/* If showManagement is false => show health. If true => show management. */}
+      {canManage && !showManagement && shouldShowHealth && (
         <View style={{ marginTop: 20 }}>
           <Text style={[theme.title, { textAlign: 'center', marginBottom: 10 }]}>
             Test Results
@@ -237,6 +253,14 @@ export function ConnectionDetailsModal({
             <HealthStatusArea stdis={stdis} statuses={remoteStatuses} />
           )}
         </View>
+      )}
+      {canManage && showManagement && (
+        <ConnectionManagement
+          connection={connection}
+          onChangeType={() => Alert.alert("TODO", "Change Connection Type action")}
+          onDisconnect={() => Alert.alert("TODO", "Disconnect action")}
+          onStartFling={() => Alert.alert("TODO", "Start a Fling action")}
+        />
       )}
     </ThemedModal>
   );

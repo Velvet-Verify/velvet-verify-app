@@ -9,6 +9,9 @@ import { useColorScheme } from 'react-native';
 type ProfileHeaderProps = {
   displayName: string;
   imageUrl?: string;
+  showManageButton?: boolean;
+  manageLabel?: string;
+  onManagePress?: () => void;
 
   /** If user can edit their own profile, we show 'Edit Profile' link. */
   onEditProfile?: () => void;
@@ -55,6 +58,9 @@ export function ProfileHeader({
   onClose,
   connectionType,
   connectionStatus,
+  showManageButton,
+  manageLabel,
+  onManagePress
 }: ProfileHeaderProps) {
   const theme = useTheme();
   const colorScheme = useColorScheme() ?? 'light';
@@ -94,7 +100,7 @@ export function ProfileHeader({
         )}
 
         {/* If not hidden and we have either onEditProfile or onSubmitTest, show them in a row */}
-        {!hideEditButtons && (onEditProfile || onSubmitTest) && (
+        {!hideEditButtons && ( // && (onEditProfile || onSubmitTest)
           <View style={theme.profileHeaderActionsRow}>
             {onEditProfile && (
               <TouchableOpacity onPress={onEditProfile}>
@@ -104,6 +110,14 @@ export function ProfileHeader({
             {onSubmitTest && (
               <TouchableOpacity onPress={onSubmitTest}>
                 <Text style={theme.profileHeaderSubmitLink}>Submit Test Result</Text>
+              </TouchableOpacity>
+            )}
+            {/* Our new Manage/Results button */}
+            {showManageButton && onManagePress && (
+              <TouchableOpacity onPress={onManagePress}>
+                <Text style={theme.profileHeaderLink}>
+                  {manageLabel ?? 'Manage'}
+                </Text>
               </TouchableOpacity>
             )}
           </View>
