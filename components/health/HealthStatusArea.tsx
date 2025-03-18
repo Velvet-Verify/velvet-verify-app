@@ -1,5 +1,4 @@
-// components/ui/HealthStatusArea.tsx
-
+// components/health/HealthStatusArea.tsx
 import React from 'react';
 import { FlatList, Text, View } from 'react-native';
 import { HealthStatusCard } from './HealthStatusCard';
@@ -25,9 +24,14 @@ type HealthStatusAreaProps = {
   stdis: STI[];
   /** A dictionary of healthStatus keyed by STDI id, or null if not loaded */
   statuses: { [key: string]: HealthStatus } | null;
+  /**
+   * If true, hide all exposure-related data (status & date).
+   * e.g. for connection level 2 or 3, we only show test result & test date.
+   */
+  hideExposure?: boolean;
 };
 
-export function HealthStatusArea({ stdis, statuses }: HealthStatusAreaProps) {
+export function HealthStatusArea({ stdis, statuses, hideExposure }: HealthStatusAreaProps) {
   const theme = useTheme();
 
   if (!stdis || stdis.length === 0) {
@@ -40,33 +44,27 @@ export function HealthStatusArea({ stdis, statuses }: HealthStatusAreaProps) {
         data={stdis}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
-          // Find the matching health status entry in `statuses` (if any).
           const status = statuses && statuses[item.id] ? statuses[item.id] : {};
 
-          // Convert boolean => "Positive"/"Negative"/"Not Tested"
           const testResult =
             typeof status.testResult === 'boolean'
               ? (status.testResult ? 'Positive' : 'Negative')
               : 'Not Tested';
 
-          // If no exposure status, default to "Not Exposed".
           const exposure =
             typeof status.exposureStatus === 'boolean'
               ? (status.exposureStatus ? 'Exposed' : 'Not Exposed')
               : 'Not Exposed';
 
-          // Only show exposure date if truly exposed.
           const exposureDate = (exposure === 'Exposed') ? status.exposureDate : null;
 
           return (
             <HealthStatusCard
-              // Use Firestore’s name if present, else fallback to the STDI id
               name={item.name || item.id}
               testResult={testResult}
               testDate={status.testDate ?? null}
-              exposure={exposure}
-              exposureDate={exposureDate}
-              /* Here's the important part: pass windowPeriodMax from the STDI doc */
+              exposure={hideExposure ? 'Hidden' : exposure}
+              exposureDate={hideExposure ? null : exposureDate}
               windowPeriodMax={item.windowPeriodMax ?? 0}
             />
           );

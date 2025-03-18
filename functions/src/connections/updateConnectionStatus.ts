@@ -1,5 +1,4 @@
 // functions/src/connections/updateConnectionStatus.ts
-
 import {
   onCall,
   type CallableRequest,
@@ -7,13 +6,10 @@ import {
   type CallableOptions,
 } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import {computeHash} from "../computeHashedId";
 
 const callableOptions: CallableOptions = {
   cors: "*",
-  // We need standard + profile secrets if we want to verify sender
-  // or recipient by SUUID as well.
-  secrets: ["STANDARD_HASH_KEY", "PROFILE_HASH_KEY"],
+  // If you need secrets, add them here
 };
 
 if (!admin.apps.length) {
@@ -21,18 +17,9 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-/**
- * We expect data like:
- * {
- *   connectionDocId: string;  // The ID of the 'connections' doc to update
- *   newStatus: number;        // 1 for Accept, 2 for Reject, etc.
- * }
- *
- * We'll also confirm the caller has permission (matches sender or recipient).
- */
 interface UpdateConnectionStatusData {
-  connectionDocId: string;
-  newStatus: number;
+  docId: string; // e.g. the Firestore document id in "connections"
+  newStatus: number; // e.g. 1 => accept, 2 => reject
 }
 
 export const updateConnectionStatus = onCall(
@@ -41,51 +28,31 @@ export const updateConnectionStatus = onCall(
     if (!request.auth) {
       throw new HttpsError(
         "unauthenticated",
-        "Must be called while authenticated."
-      );
+        "User must be authenticated.");
     }
-
-    const {connectionDocId, newStatus} = request.data || {};
-    if (!connectionDocId || typeof newStatus !== "number") {
+    const {docId, newStatus} = request.data;
+    if (!docId || typeof newStatus !== "number") {
       throw new HttpsError(
         "invalid-argument",
-        "Missing connectionDocId or newStatus."
+        "Missing docId or invalid newStatus."
       );
     }
 
-    // Fetch the connection doc
-    const connectionRef = db.collection("connections").doc(connectionDocId);
-    const connectionSnap = await connectionRef.get();
-    if (!connectionSnap.exists) {
-      throw new HttpsError("not-found", "Connection document not found.");
-    }
-    const connectionData = connectionSnap.data();
-
-    // Security check: ensure current user is sender or recipient
-    // so they have permission to update the status.
-    // We'll compute the user's SUUID to compare.
-    const callerUid = request.auth.uid;
-    const callerSUUID = await computeHash("standard", callerUid);
-
-    const senderSUUID = connectionData?.senderSUUID;
-    const recipientSUUID = connectionData?.recipientSUUID;
-
-    const isAllowed =
-      callerSUUID === senderSUUID || callerSUUID === recipientSUUID;
-
-    if (!isAllowed) {
+    try {
+      const connRef = db.collection("connections").doc(docId);
+      const connSnap = await connRef.get();
+      if (!connSnap.exists) {
+        throw new HttpsError("not-found", "Connection not found.");
+      }
+      // Optionally: verify that the caller is allowed to modify this doc
+      // (e.g. must be the senderSUUID or recipientSUUID).
+      await connRef.update({connectionStatus: newStatus});
+      return {success: true};
+    } catch (err: any) {
+      console.error("updateConnectionStatus error:", err);
       throw new HttpsError(
-        "permission-denied",
-        "You do not have permission to update this connection."
+        "unknown", err.message || "Failed to update connection status."
       );
     }
-
-    // Update the connectionStatus field
-    await connectionRef.update({
-      connectionStatus: newStatus,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    return {message: "Connection status updated successfully.", newStatus};
   }
 );

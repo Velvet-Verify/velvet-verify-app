@@ -1,4 +1,3 @@
-// functions/src/connections/getConnections.ts
 import {
   onCall,
   type CallableRequest,
@@ -10,7 +9,6 @@ import {computeHash} from "../computeHashedId";
 
 const callableOptions: CallableOptions = {
   cors: "*",
-  // Include both keys since we need to compute the profile hash.
   secrets: ["STANDARD_HASH_KEY", "PROFILE_HASH_KEY"],
 };
 
@@ -20,16 +18,19 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 /**
- * Extend this interface to include connectionDocId
+ * The Connection interface now includes the connectionDocId (document ID)
+ * as well as the sender and recipient SUUIDs.
  */
 interface Connection {
-  connectionDocId: string; // <-- new: the doc's ID
+  connectionDocId: string;
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;
   expiresAt: string | null;
   connectionLevel: number;
   connectionStatus: number;
+  senderSUUID: string;
+  recipientSUUID: string;
 }
 
 export const getConnections = onCall(
@@ -60,8 +61,7 @@ export const getConnections = onCall(
       const senderSUUID: string = data.senderSUUID;
 
       // Compute the PSUUID using the sender's standard hash.
-      // Pass an empty rawUid and the senderSUUID as input => {
-      //   computeHash("profile", "", senderSUUID).}
+      // Pass an empty rawUid and the senderSUUID as input.
       const psuuid = await computeHash("profile", "", senderSUUID);
 
       // Query the publicProfile collection using the PSUUID.
@@ -75,7 +75,7 @@ export const getConnections = onCall(
       }
 
       connections.push({
-        connectionDocId: docSnap.id, // <--- new field
+        connectionDocId: docSnap.id, // NEW: add document ID for later updates
         displayName,
         imageUrl,
         createdAt: data.createdAt ?
@@ -86,6 +86,8 @@ export const getConnections = onCall(
           null,
         connectionLevel: data.connectionLevel,
         connectionStatus: data.connectionStatus,
+        senderSUUID: data.senderSUUID,
+        recipientSUUID: data.recipientSUUID,
       });
     }
     return connections;
