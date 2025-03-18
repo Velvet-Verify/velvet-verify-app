@@ -1,18 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Button, Alert, TouchableOpacity } from 'react-native';
+// components/connections/ConnectionDetailsModal.tsx
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, Button, Alert } from 'react-native';
 import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from 'react-native';
 import { ProfileHeader } from '@/components/profile/ProfileHeader';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getFunctions, httpsCallable, Functions } from 'firebase/functions';
 import { firebaseApp } from '@/src/firebase/config';
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { HealthStatusArea } from '@/components/health/HealthStatusArea';
-
-const functionsInstance = getFunctions(firebaseApp);
-const updateConnectionStatusCF = httpsCallable(functionsInstance, "updateConnectionStatus");
-const computeHashedIdCF = httpsCallable(functionsInstance, "computeHashedId");
 
 export interface Connection {
   connectionDocId?: string;
@@ -48,118 +45,146 @@ export function ConnectionDetailsModal({
   stdis,
 }: ConnectionDetailsModalProps) {
   const theme = useTheme();
-  const db = getFirestore(firebaseApp);
   const colorScheme = useColorScheme() ?? 'light';
   const xIconColor = Colors[colorScheme].icon;
 
-  // Load level and status names from lookup docs.
+  const db = useMemo(() => getFirestore(firebaseApp), []);
+  const functionsInstance = useMemo<Functions>(() => getFunctions(firebaseApp), []);
+  
+  // Create references to your Cloud Functions, stable across renders
+  const updateConnectionStatusCF = useMemo(
+    () => httpsCallable(functionsInstance, 'updateConnectionStatus'),
+    [functionsInstance]
+  );
+  const getUserHealthStatusesCF = useMemo(
+    () => httpsCallable(functionsInstance, 'getUserHealthStatuses'),
+    [functionsInstance]
+  );
+
   const [levelName, setLevelName] = useState<string>(`Level ${connection.connectionLevel}`);
   const [statusName, setStatusName] = useState<string>(`Status ${connection.connectionStatus}`);
-  const [levelDescription, setLevelDescription] = useState<string>("");
+  const [levelDescription, setLevelDescription] = useState<string>('');
 
+  const [remoteStatuses, setRemoteStatuses] = useState<{ [key: string]: any }>({});
+  const [loadingHealth, setLoadingHealth] = useState(false);
+
+  // Decide if we show remote user’s health data
+  const shouldShowHealth = connection.connectionStatus === 1 && connection.connectionLevel >= 2;
+
+  // Load connectionLevel / status from Firestore (once per open)
   useEffect(() => {
+    if (!visible) return; // Only load once when we open the modal
     let unsub = false;
+
     (async () => {
       try {
-        const levelRef = doc(db, "connectionLevels", String(connection.connectionLevel));
+        const levelRef = doc(db, 'connectionLevels', String(connection.connectionLevel));
         const levelSnap = await getDoc(levelRef);
         if (!unsub && levelSnap.exists()) {
           setLevelName(levelSnap.data().name ?? `Level ${connection.connectionLevel}`);
-          setLevelDescription(levelSnap.data().description ?? "");
+          setLevelDescription(levelSnap.data().description ?? '');
         }
-        const statusRef = doc(db, "connectionStatuses", String(connection.connectionStatus));
+        const statusRef = doc(db, 'connectionStatuses', String(connection.connectionStatus));
         const statusSnap = await getDoc(statusRef);
         if (!unsub && statusSnap.exists()) {
           setStatusName(statusSnap.data().name ?? `Status ${connection.connectionStatus}`);
         }
       } catch (err) {
-        console.error("Error loading level/status docs:", err);
+        console.error('Error loading level/status docs:', err);
       }
     })();
-    return () => { unsub = true; };
-  }, [connection, db]);
 
-  // Load remote health statuses (for the remote user)
-  const [remoteStatuses, setRemoteStatuses] = useState<{ [stdiId: string]: any }>({});
-  const [loadingHealth, setLoadingHealth] = useState(false);
-  const shouldShowHealth = connection.connectionStatus === 1 && connection.connectionLevel >= 2;
+    return () => {
+      unsub = true;
+    };
+  }, [visible, db, connection.connectionLevel, connection.connectionStatus]);
 
+  // Only load remote health once per open, if we have a docId and shouldShowHealth
+  // This won't keep re-triggering because `visible`, `connectionDocId`, etc. won't keep changing
   useEffect(() => {
+    if (!visible) return;
     if (!shouldShowHealth) return;
     if (!connection.connectionDocId) return;
 
     setLoadingHealth(true);
-
     (async function loadRemoteHealth() {
       try {
-        const cDoc = await getDoc(doc(db, "connections", connection.connectionDocId!));
-        if (!cDoc.exists()) {
-          console.warn("Connection doc not found!");
+        const cDocSnap = await getDoc(doc(db, 'connections', connection.connectionDocId!));
+        if (!cDocSnap.exists()) {
+          console.warn('Connection doc not found!');
           return;
         }
-        const data = cDoc.data();
-        // Determine the remote user's SUUID based on whether the current user is the recipient.
-        const remoteSUUID = isRecipient ? data.senderSUUID : data.recipientSUUID;
+        const cDocData = cDocSnap.data();
+
+        // Determine the remote user’s SUUID
+        const remoteSUUID = isRecipient ? cDocData.senderSUUID : cDocData.recipientSUUID;
         if (!remoteSUUID) {
-          console.warn("No remoteSUUID found in connection data!");
+          console.warn('No remoteSUUID found in connection data!');
           return;
         }
-        const hResult = await computeHashedIdCF({ hashType: "health", inputSUUID: remoteSUUID });
-        const remoteHsUUID = hResult.data.hashedId;
-        const newStatuses: { [key: string]: any } = {};
-        for (const stdi of stdis) {
-          const docId = `${remoteHsUUID}_${stdi.id}`;
-          const snap = await getDoc(doc(db, "healthStatus", docId));
-          if (snap.exists()) {
-            newStatuses[stdi.id] = snap.data();
-          }
-        }
-        setRemoteStatuses(newStatuses);
+
+        const hideDate = connection.connectionLevel === 2 || connection.connectionLevel === 3;
+
+        const result = await getUserHealthStatusesCF({
+          suuid: remoteSUUID,
+          hideDate,
+        });
+
+        const returnedStatuses = result.data?.statuses || {};
+        setRemoteStatuses(returnedStatuses);
       } catch (err) {
-        console.error("Error loading remote user health statuses:", err);
+        console.error('Error loading remote user health statuses:', err);
       } finally {
         setLoadingHealth(false);
       }
     })();
-  }, [shouldShowHealth, connection.connectionDocId, db, isRecipient, stdis]);
-  
+  }, [
+    visible,
+    shouldShowHealth,
+    connection.connectionDocId,
+    connection.connectionLevel,
+    isRecipient,
+    db,
+    getUserHealthStatusesCF,
+  ]);
+
+  // Accept/Reject logic
   async function handleAccept() {
     try {
       if (!connection.connectionDocId) {
-        Alert.alert("Error", "Missing connectionDocId for update!");
+        Alert.alert('Error', 'Missing connectionDocId for update!');
         return;
       }
       await updateConnectionStatusCF({
         docId: connection.connectionDocId,
         newStatus: 1,
       });
-      Alert.alert("Accepted", "Connection accepted successfully!");
+      Alert.alert('Accepted', 'Connection accepted successfully!');
       onClose();
     } catch (err: any) {
-      console.error("Accept error:", err);
-      Alert.alert("Error", err.message || "Could not accept.");
+      console.error('Accept error:', err);
+      Alert.alert('Error', err.message || 'Could not accept.');
     }
   }
 
   async function handleReject() {
     try {
       if (!connection.connectionDocId) {
-        Alert.alert("Error", "Missing connectionDocId for update!");
+        Alert.alert('Error', 'Missing connectionDocId for update!');
         return;
       }
       await updateConnectionStatusCF({
         docId: connection.connectionDocId,
         newStatus: 2,
       });
-      Alert.alert("Rejected", "Connection rejected.");
+      Alert.alert('Rejected', 'Connection rejected.');
       onClose();
     } catch (err: any) {
-      console.error("Reject error:", err);
-      Alert.alert("Error", err.message || "Could not reject.");
+      console.error('Reject error:', err);
+      Alert.alert('Error', err.message || 'Could not reject.');
     }
   }
 
-  // Determine whether to show the Accept/Reject controls (pending new connection)
   const isPendingNew =
     connection.connectionStatus === 0 &&
     connection.connectionLevel === 2 &&
@@ -167,7 +192,6 @@ export function ConnectionDetailsModal({
 
   return (
     <ThemedModal visible={visible} onRequestClose={onClose} useBlur>
-      {/* Profile header with an X in the top-right */}
       <ProfileHeader
         displayName={connection.displayName || 'Unknown'}
         imageUrl={connection.imageUrl || undefined}
@@ -177,13 +201,12 @@ export function ConnectionDetailsModal({
         connectionStatus={statusName}
       />
 
-      {/* If pending new, show accept/reject controls with level description */}
       {isPendingNew && (
         <View style={styles.pendingContainer}>
           <Text style={[theme.bodyText, { fontWeight: 'bold', marginBottom: 10 }]}>
             User has initiated a connection request.
           </Text>
-          {!!levelDescription && (
+          {Boolean(levelDescription) && (
             <View style={{ marginBottom: 10 }}>
               <Text style={theme.bodyText}>{levelDescription}</Text>
             </View>
@@ -203,7 +226,6 @@ export function ConnectionDetailsModal({
         </View>
       )}
 
-      {/* If accepted and level ≥ 2, show remote user's health statuses */}
       {shouldShowHealth && (
         <View style={{ marginTop: 20 }}>
           <Text style={[theme.title, { textAlign: 'center', marginBottom: 10 }]}>
@@ -223,11 +245,11 @@ export function ConnectionDetailsModal({
 const styles = StyleSheet.create({
   pendingContainer: {
     marginTop: 25,
-    alignItems: "center",
+    alignItems: 'center',
   },
   buttonRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "60%",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '60%',
   },
 });

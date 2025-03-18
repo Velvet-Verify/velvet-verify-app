@@ -44,15 +44,20 @@ export const updateConnectionStatus = onCall(
       if (!connSnap.exists) {
         throw new HttpsError("not-found", "Connection not found.");
       }
-      // Optionally: verify that the caller is allowed to modify this doc
+
+      // Optionally: verify the caller is allowed to modify this doc
       // (e.g. must be the senderSUUID or recipientSUUID).
       await connRef.update({connectionStatus: newStatus});
       return {success: true};
-    } catch (err: any) {
-      console.error("updateConnectionStatus error:", err);
-      throw new HttpsError(
-        "unknown", err.message || "Failed to update connection status."
-      );
+    } catch (error: unknown) {
+      console.error("updateConnectionStatus error:", error);
+
+      // If it's an Error, grab the message; otherwise use a default.
+      const msg = error instanceof Error ?
+        error.message :
+        "Failed to update connection status.";
+
+      throw new HttpsError("unknown", msg);
     }
   }
 );

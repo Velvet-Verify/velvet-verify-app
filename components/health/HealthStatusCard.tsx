@@ -14,15 +14,33 @@ type HealthStatusCardProps = {
 };
 
 function formatDate(dateValue: any): string {
-  if (!dateValue) return 'N/A';
-  if (typeof dateValue === 'object' && dateValue.seconds !== undefined) {
+  // If the CF has already masked the date to something like "Last 90 Days" etc.
+  // we can detect that quickly:
+  if (typeof dateValue === "string") {
+    // If it's one of your known masked strings, just return it directly
+    const maskedOptions = [
+      "Last 90 Days",
+      "Last 180 Days",
+      "Last Year",
+      "Over 1 Year",
+    ];
+    if (maskedOptions.includes(dateValue)) {
+      return dateValue;
+    }
+    // If it's not one of those strings, maybe we still try parse it or handle it below
+    // or just return dateValue
+    // return dateValue; 
+  }
+
+  if (!dateValue) return "N/A";
+  if (typeof dateValue === "object" && dateValue.seconds !== undefined) {
     return new Date(dateValue.seconds * 1000).toLocaleDateString();
   }
-  if (typeof dateValue.toDate === 'function') {
+  if (typeof dateValue.toDate === "function") {
     return dateValue.toDate().toLocaleDateString();
   }
   const dateObj = new Date(dateValue);
-  return isNaN(dateObj.getTime()) ? 'N/A' : dateObj.toLocaleDateString();
+  return isNaN(dateObj.getTime()) ? "N/A" : dateObj.toLocaleDateString();
 }
 
 function computeTestAfterDate(exposureDate: any, windowPeriodMax: number): string {
