@@ -1,3 +1,4 @@
+// functions/src/connections/getConnections.ts
 import {
   onCall,
   type CallableRequest,
@@ -17,10 +18,6 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-/**
- * The Connection interface now includes the connectionDocId (document ID)
- * as well as the sender and recipient SUUIDs.
- */
 interface Connection {
   connectionDocId: string;
   displayName: string | null;
@@ -46,26 +43,57 @@ export const getConnections = onCall(
     }
     // Compute the caller's standard hash (SUUID)
     const userSUUID = await computeHash("standard", request.auth.uid);
-
-    // Query connections where recipientSUUID equals the user's SUUID
-    // and connectionStatus is either 0 (pending) or 1 (accepted).
     const connectionsRef = db.collection("connections");
-    const querySnapshot = await connectionsRef
-      .where("recipientSUUID", "==", userSUUID)
-      .where("connectionStatus", "in", [0, 1])
+
+    // Accepted connections where the user is the sender.
+    const acceptedSenderQuery = await connectionsRef
+      .where("connectionStatus", "==", 1)
+      .where("connectionLevel", ">=", 2)
+      .where("senderSUUID", "==", userSUUID)
       .get();
 
+    // Accepted connections where the user is the recipient.
+    const acceptedRecipientQuery = await connectionsRef
+      .where("connectionStatus", "==", 1)
+      .where("connectionLevel", ">=", 2)
+      .where("recipientSUUID", "==", userSUUID)
+      .get();
+
+    // Pending connections (status 0) where the user is the recipient.
+    const pendingRecipientQuery = await connectionsRef
+      .where("connectionStatus", "==", 0)
+      .where("connectionLevel", ">=", 2)
+      .where("recipientSUUID", "==", userSUUID)
+      .get();
+
+    // Combine all the documents from the queries.
+    const docs = [
+      ...acceptedSenderQuery.docs,
+      ...acceptedRecipientQuery.docs,
+      ...pendingRecipientQuery.docs,
+    ];
+
     const connections: Connection[] = [];
-    for (const docSnap of querySnapshot.docs) {
+
+    // Process each connection document.
+    for (const docSnap of docs) {
       const data = docSnap.data();
-      const senderSUUID: string = data.senderSUUID;
 
-      // Compute the PSUUID using the sender's standard hash.
-      // Pass an empty rawUid and the senderSUUID as input.
-      const psuuid = await computeHash("profile", "", senderSUUID);
+      // Figure out which SUUID is the other person's
+      const remoteSUUID = (userSUUID === data.senderSUUID) ?
+        data.recipientSUUID :
+        data.senderSUUID;
 
-      // Query the publicProfile collection using the PSUUID.
-      const profileDoc = await db.collection("publicProfile").doc(psuuid).get();
+      // Compute the remote user's PSUUID
+      const psuuid = await computeHash(
+        "profile", "",
+        remoteSUUID
+      );
+      const profileDoc = await db
+        .collection("publicProfile")
+        .doc(psuuid)
+        .get();
+
       let displayName: string | null = null;
       let imageUrl: string | null = null;
       if (profileDoc.exists) {
@@ -75,7 +103,7 @@ export const getConnections = onCall(
       }
 
       connections.push({
-        connectionDocId: docSnap.id, // NEW: add document ID for later updates
+        connectionDocId: docSnap.id,
         displayName,
         imageUrl,
         createdAt: data.createdAt ?

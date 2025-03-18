@@ -1,3 +1,4 @@
+// app/(tabs)/connections.tsx
 import React, { useEffect, useState } from "react";
 import { View, Text, FlatList, Platform, TouchableOpacity } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
