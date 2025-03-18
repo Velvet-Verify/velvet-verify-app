@@ -48,9 +48,11 @@ export function ConnectionItem({ connection }: ConnectionItemProps) {
         </Text>
 
         {/* Second line: Expiration date only */}
-        <Text style={[theme.bodyText, styles.expLine]}>
-          Expires: {expiresDate}
-        </Text>
+        {connection.connectionLevel === 2 && (
+          <Text style={[theme.bodyText, styles.expLine]}>
+            Expires: {expiresDate}
+          </Text>
+        )}
       </View>
     </View>
   );

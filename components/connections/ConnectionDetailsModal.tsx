@@ -229,7 +229,7 @@ export function ConnectionDetailsModal({
       {shouldShowHealth && (
         <View style={{ marginTop: 20 }}>
           <Text style={[theme.title, { textAlign: 'center', marginBottom: 10 }]}>
-            Remote User's Test Results
+            Test Results
           </Text>
           {loadingHealth ? (
             <Text style={theme.bodyText}>Loading health data...</Text>
