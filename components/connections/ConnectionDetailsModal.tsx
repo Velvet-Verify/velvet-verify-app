@@ -1,6 +1,13 @@
 // components/connections/ConnectionDetailsModal.tsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Button, Alert } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Button, 
+  Alert,
+  FlatList 
+} from 'react-native';
 import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
 import Colors from '@/constants/Colors';
@@ -47,12 +54,10 @@ export function ConnectionDetailsModal({
 }: ConnectionDetailsModalProps) {
   const theme = useTheme();
   const colorScheme = useColorScheme() ?? 'light';
-  const xIconColor = Colors[colorScheme].icon;
 
   const db = useMemo(() => getFirestore(firebaseApp), []);
   const functionsInstance = useMemo<Functions>(() => getFunctions(firebaseApp), []);
   
-  // Create references to your Cloud Functions, stable across renders
   const updateConnectionStatusCF = useMemo(
     () => httpsCallable(functionsInstance, 'updateConnectionStatus'),
     [functionsInstance]
@@ -62,22 +67,22 @@ export function ConnectionDetailsModal({
     [functionsInstance]
   );
 
-  const [levelName, setLevelName] = useState<string>(`Level ${connection.connectionLevel}`);
-  const [statusName, setStatusName] = useState<string>(`Status ${connection.connectionStatus}`);
-  const [levelDescription, setLevelDescription] = useState<string>('');
+  const [levelName, setLevelName] = useState(`Level ${connection.connectionLevel}`);
+  const [statusName, setStatusName] = useState(`Status ${connection.connectionStatus}`);
+  const [levelDescription, setLevelDescription] = useState('');
 
   const [remoteStatuses, setRemoteStatuses] = useState<{ [key: string]: any }>({});
   const [loadingHealth, setLoadingHealth] = useState(false);
 
-  // Local state to toggle between “health results” and “management”
+  // Toggle between “health results” and “management”
   const [showManagement, setShowManagement] = useState(false);
 
-  // Decide if we show remote user’s health data
+  // Show remote user’s health data if active (status 1) and L2+
   const shouldShowHealth = connection.connectionStatus === 1 && connection.connectionLevel >= 2;
 
-  // Load connectionLevel / status from Firestore (once per open)
+  // Load connection level / status
   useEffect(() => {
-    if (!visible) return; // Only load once when we open the modal
+    if (!visible) return;
     let unsub = false;
 
     (async () => {
@@ -103,8 +108,7 @@ export function ConnectionDetailsModal({
     };
   }, [visible, db, connection.connectionLevel, connection.connectionStatus]);
 
-  // Only load remote health once per open, if we have a docId and shouldShowHealth
-  // This won't keep re-triggering because `visible`, `connectionDocId`, etc. won't keep changing
+  // Load remote health once if needed
   useEffect(() => {
     if (!visible) return;
     if (!shouldShowHealth) return;
@@ -119,8 +123,7 @@ export function ConnectionDetailsModal({
           return;
         }
         const cDocData = cDocSnap.data();
-
-        // Determine the remote user’s SUUID
+        // Which side's SUUID to fetch
         const remoteSUUID = isRecipient ? cDocData.senderSUUID : cDocData.recipientSUUID;
         if (!remoteSUUID) {
           console.warn('No remoteSUUID found in connection data!');
@@ -128,12 +131,7 @@ export function ConnectionDetailsModal({
         }
 
         const hideDate = connection.connectionLevel === 2 || connection.connectionLevel === 3;
-
-        const result = await getUserHealthStatusesCF({
-          suuid: remoteSUUID,
-          hideDate,
-        });
-
+        const result = await getUserHealthStatusesCF({ suuid: remoteSUUID, hideDate });
         const returnedStatuses = result.data?.statuses || {};
         setRemoteStatuses(returnedStatuses);
       } catch (err) {
@@ -152,17 +150,14 @@ export function ConnectionDetailsModal({
     getUserHealthStatusesCF,
   ]);
 
-  // Accept/Reject logic
+  // Accept/Reject
   async function handleAccept() {
+    if (!connection.connectionDocId) {
+      Alert.alert('Error', 'Missing connectionDocId for update!');
+      return;
+    }
     try {
-      if (!connection.connectionDocId) {
-        Alert.alert('Error', 'Missing connectionDocId for update!');
-        return;
-      }
-      await updateConnectionStatusCF({
-        docId: connection.connectionDocId,
-        newStatus: 1,
-      });
+      await updateConnectionStatusCF({ docId: connection.connectionDocId, newStatus: 1 });
       Alert.alert('Accepted', 'Connection accepted successfully!');
       onClose();
     } catch (err: any) {
@@ -172,15 +167,12 @@ export function ConnectionDetailsModal({
   }
 
   async function handleReject() {
+    if (!connection.connectionDocId) {
+      Alert.alert('Error', 'Missing connectionDocId for update!');
+      return;
+    }
     try {
-      if (!connection.connectionDocId) {
-        Alert.alert('Error', 'Missing connectionDocId for update!');
-        return;
-      }
-      await updateConnectionStatusCF({
-        docId: connection.connectionDocId,
-        newStatus: 2,
-      });
+      await updateConnectionStatusCF({ docId: connection.connectionDocId, newStatus: 2 });
       Alert.alert('Rejected', 'Connection rejected.');
       onClose();
     } catch (err: any) {
@@ -194,74 +186,96 @@ export function ConnectionDetailsModal({
     connection.connectionLevel === 2 &&
     isRecipient;
 
-  // For the “Manage <-> Results” toggle
-  // We only show it if connectionStatus == 1 (i.e. “active”)
+  // Manage or Results?
   const canManage = connection.connectionStatus === 1;
-  const manageLabel = showManagement ? "Results" : "Manage";
+  const manageLabel = showManagement ? 'Results' : 'Manage';
   const handleManagePress = () => setShowManagement(prev => !prev);
-  
+
+  // Renders the top area (ProfileHeader + pending accept/reject)
+  function renderHeader() {
+    return (
+      <View>
+        <ProfileHeader
+          displayName={connection.displayName || 'Unknown'}
+          imageUrl={connection.imageUrl || undefined}
+          onClose={onClose}
+          hideEditButtons={false}
+          connectionType={levelName}
+          connectionStatus={statusName}
+          showManageButton={canManage}
+          manageLabel={manageLabel}
+          onManagePress={handleManagePress}
+        />
+
+        {isPendingNew && (
+          <View style={styles.pendingContainer}>
+            <Text style={[theme.bodyText, { fontWeight: 'bold', marginBottom: 10 }]}>
+              User has initiated a connection request.
+            </Text>
+            {!!levelDescription && (
+              <View style={{ marginBottom: 10 }}>
+                <Text style={theme.bodyText}>{levelDescription}</Text>
+              </View>
+            )}
+            <View style={styles.buttonRow}>
+              <Button
+                title="Reject"
+                onPress={handleReject}
+                color={theme.buttonSecondary.backgroundColor}
+              />
+              <Button
+                title="Accept"
+                onPress={handleAccept}
+                color={theme.buttonPrimary.backgroundColor}
+              />
+            </View>
+          </View>
+        )}
+      </View>
+    );
+  }
+
+  // Renders the bottom area (health or management)
+  function renderFooter() {
+    return (
+      <View>
+        {/* If showManagement is false => show health. If true => show management. */}
+        {canManage && !showManagement && shouldShowHealth && (
+          <View style={{ marginTop: 20 }}>
+            <Text style={[theme.title, { textAlign: 'center', marginBottom: 10 }]}>
+              Test Results
+            </Text>
+            {loadingHealth ? (
+              <Text style={theme.bodyText}>Loading health data...</Text>
+            ) : (
+              <HealthStatusArea stdis={stdis} statuses={remoteStatuses} />
+            )}
+          </View>
+        )}
+
+        {canManage && showManagement && (
+          <ConnectionManagement
+            connection={connection}
+            onChangeType={() => Alert.alert('TODO', 'Change Connection Type action')}
+            onDisconnect={() => Alert.alert('TODO', 'Disconnect action')}
+            onStartFling={() => Alert.alert('TODO', 'Start a Fling action')}
+          />
+        )}
+      </View>
+    );
+  }
+
+  // Use a FlatList with empty data, so it can scroll big content. 
   return (
     <ThemedModal visible={visible} onRequestClose={onClose} useBlur>
-      <ProfileHeader
-        displayName={connection.displayName || 'Unknown'}
-        imageUrl={connection.imageUrl || undefined}
-        onClose={onClose}
-        hideEditButtons={false}
-        connectionType={levelName}
-        connectionStatus={statusName}
-        showManageButton={canManage}
-        manageLabel={manageLabel}
-        onManagePress={handleManagePress}
+      <FlatList
+        data={[]} // no actual items
+        keyExtractor={() => 'dummy'} // just something so RN is happy
+        style={{ width: '100%' }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
       />
-
-      {isPendingNew && (
-        <View style={styles.pendingContainer}>
-          <Text style={[theme.bodyText, { fontWeight: 'bold', marginBottom: 10 }]}>
-            User has initiated a connection request.
-          </Text>
-          {Boolean(levelDescription) && (
-            <View style={{ marginBottom: 10 }}>
-              <Text style={theme.bodyText}>{levelDescription}</Text>
-            </View>
-          )}
-          <View style={styles.buttonRow}>
-            <Button
-              title="Reject"
-              onPress={handleReject}
-              color={theme.buttonSecondary.backgroundColor}
-            />
-            <Button
-              title="Accept"
-              onPress={handleAccept}
-              color={theme.buttonPrimary.backgroundColor}
-            />
-          </View>
-        </View>
-      )}
-
-      
-
-      {/* If showManagement is false => show health. If true => show management. */}
-      {canManage && !showManagement && shouldShowHealth && (
-        <View style={{ marginTop: 20 }}>
-          <Text style={[theme.title, { textAlign: 'center', marginBottom: 10 }]}>
-            Test Results
-          </Text>
-          {loadingHealth ? (
-            <Text style={theme.bodyText}>Loading health data...</Text>
-          ) : (
-            <HealthStatusArea stdis={stdis} statuses={remoteStatuses} />
-          )}
-        </View>
-      )}
-      {canManage && showManagement && (
-        <ConnectionManagement
-          connection={connection}
-          onChangeType={() => Alert.alert("TODO", "Change Connection Type action")}
-          onDisconnect={() => Alert.alert("TODO", "Disconnect action")}
-          onStartFling={() => Alert.alert("TODO", "Start a Fling action")}
-        />
-      )}
     </ThemedModal>
   );
 }

@@ -1,23 +1,22 @@
 // components/connections/ConnectionManagement.tsx
 import React from 'react';
-import { View, Text, StyleSheet, Button } from 'react-native';
-import { Connection } from './ConnectionDetailsModal'; 
-// Or wherever your Connection interface is exported. 
-// If it's in a separate file, import from that instead.
+import { View, Text, StyleSheet } from 'react-native';
+import { useTheme } from 'styled-components/native';
+import { ThemedButton } from '@/components/ui/ThemedButton';
+import { Connection } from './ConnectionDetailsModal';
 
 interface ConnectionManagementProps {
   connection: Connection;
-  // Example placeholders for the 3 actions' callbacks:
   onChangeType?: () => void;
   onDisconnect?: () => void;
   onStartFling?: () => void;
 }
 
 /**
- * A simple component with 3 primary action buttons:
- * 1) Change Connection Type
- * 2) Disconnect
- * 3) Start a Fling
+ * A simple component with 3 primary action buttons (stacked vertically):
+ * 1. Change Connection Type
+ * 2. Disconnect
+ * 3. Start a Fling
  */
 export function ConnectionManagement({
   connection,
@@ -25,18 +24,33 @@ export function ConnectionManagement({
   onDisconnect,
   onStartFling,
 }: ConnectionManagementProps) {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Manage Connection</Text>
-      {/* Connection info can be displayed if you like */}
-      <Text>Level: {connection.connectionLevel}</Text>
-      <Text>Status: {connection.connectionStatus}</Text>
+  const theme = useTheme();
 
-      {/* Buttons */}
-      <View style={styles.buttonRow}>
-        <Button title="Change Connection Type" onPress={onChangeType} />
-        <Button title="Disconnect" onPress={onDisconnect} />
-        <Button title="Start a Fling" onPress={onStartFling} />
+  return (
+    <View style={[theme.centerContainer, styles.container]}>
+      <Text style={[theme.title, styles.title]}>Manage Connection</Text>
+      <Text style={theme.bodyText}>Level: {connection.connectionLevel}</Text>
+      <Text style={theme.bodyText}>Status: {connection.connectionStatus}</Text>
+
+      <View style={styles.buttonContainer}>
+        <ThemedButton
+          title="Change Connection Type"
+          variant="primary"
+          onPress={onChangeType}
+          style={styles.button}
+        />
+        <ThemedButton
+          title="Disconnect"
+          variant="primary"
+          onPress={onDisconnect}
+          style={styles.button}
+        />
+        <ThemedButton
+          title="Start a Fling"
+          variant="primary"
+          onPress={onStartFling}
+          style={styles.button}
+        />
       </View>
     </View>
   );
@@ -44,17 +58,21 @@ export function ConnectionManagement({
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: 'center',
-    marginVertical: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
   },
   title: {
-    fontWeight: 'bold',
-    marginBottom: 12,
-    fontSize: 18,
+    marginBottom: 10,
   },
-  buttonRow: {
-    marginTop: 15,
-    width: '80%',
-    // space them out as you see fit
+  buttonContainer: {
+    marginTop: 20,
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+  },
+  button: {
+    marginVertical: 5,
+    // Ensures all buttons have the same size. Adjust as needed.
+    height: 50,
+    width: '100%',
   },
 });

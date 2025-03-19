@@ -96,6 +96,7 @@ export const lightTheme = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 20,
     borderRadius: 10,
+    maxHeight: '80%',
   },
   modalTitle: {
     fontSize: 20,
@@ -239,6 +240,7 @@ export const darkTheme = StyleSheet.create({
     backgroundColor: '#222',
     padding: 20,
     borderRadius: 10,
+    maxHeight: '80%',
   },
   modalTitle: {
     fontSize: 20,
