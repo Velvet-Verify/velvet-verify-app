@@ -1,4 +1,3 @@
-// components/connections/ConnectionManagement.tsx
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
@@ -12,12 +11,6 @@ interface ConnectionManagementProps {
   onStartFling?: () => void;
 }
 
-/**
- * A simple component with 3 primary action buttons (stacked vertically):
- * 1. Change Connection Type
- * 2. Disconnect
- * 3. Start a Fling
- */
 export function ConnectionManagement({
   connection,
   onChangeType,
@@ -29,8 +22,6 @@ export function ConnectionManagement({
   return (
     <View style={[theme.centerContainer, styles.container]}>
       <Text style={[theme.title, styles.title]}>Manage Connection</Text>
-      <Text style={theme.bodyText}>Level: {connection.connectionLevel}</Text>
-      <Text style={theme.bodyText}>Status: {connection.connectionStatus}</Text>
 
       <View style={styles.buttonContainer}>
         <ThemedButton
@@ -71,7 +62,6 @@ const styles = StyleSheet.create({
   },
   button: {
     marginVertical: 5,
-    // Ensures all buttons have the same size. Adjust as needed.
     height: 50,
     width: '100%',
   },

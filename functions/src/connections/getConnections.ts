@@ -67,11 +67,20 @@ export const getConnections = onCall(
       .get();
 
     // Combine all the documents from the queries.
-    const docs = [
+    const allDocs = [
       ...acceptedSenderQuery.docs,
       ...acceptedRecipientQuery.docs,
       ...pendingRecipientQuery.docs,
     ];
+
+    // Deduplicate by doc ID
+    const uniqueDocsMap = new Map<string, admin
+      .firestore
+      .QueryDocumentSnapshot>();
+    for (const snap of allDocs) {
+      uniqueDocsMap.set(snap.id, snap); // if same id occurs, it overwrites
+    }
+    const docs = Array.from(uniqueDocsMap.values());
 
     const connections: Connection[] = [];
 

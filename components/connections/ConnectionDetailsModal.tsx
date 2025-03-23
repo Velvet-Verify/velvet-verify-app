@@ -1,23 +1,17 @@
 // components/connections/ConnectionDetailsModal.tsx
 import React, { useEffect, useMemo, useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  Button, 
-  Alert,
-  FlatList 
-} from 'react-native';
+import { View, Text, StyleSheet, Button, Alert, FlatList } from 'react-native';
 import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
-import Colors from '@/constants/Colors';
 import { useColorScheme } from 'react-native';
 import { ProfileHeader } from '@/components/profile/ProfileHeader';
-import { getFunctions, httpsCallable, Functions } from 'firebase/functions';
-import { firebaseApp } from '@/src/firebase/config';
-import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { HealthStatusArea } from '@/components/health/HealthStatusArea';
 import { ConnectionManagement } from '@/components/connections/ConnectionManagement';
+import { ConnectionLevelChange } from '@/components/connections/ConnectionLevelChange';
+import { useConnections } from '@/src/context/ConnectionsContext';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable, Functions } from 'firebase/functions';
+import { firebaseApp } from '@/src/firebase/config';
 
 export interface Connection {
   connectionDocId?: string;
@@ -55,32 +49,26 @@ export function ConnectionDetailsModal({
   const theme = useTheme();
   const colorScheme = useColorScheme() ?? 'light';
 
+  const { refreshConnections } = useConnections();
+
   const db = useMemo(() => getFirestore(firebaseApp), []);
   const functionsInstance = useMemo<Functions>(() => getFunctions(firebaseApp), []);
-  
-  const updateConnectionStatusCF = useMemo(
-    () => httpsCallable(functionsInstance, 'updateConnectionStatus'),
-    [functionsInstance]
-  );
-  const getUserHealthStatusesCF = useMemo(
-    () => httpsCallable(functionsInstance, 'getUserHealthStatuses'),
-    [functionsInstance]
-  );
+  const updateConnectionStatusCF = useMemo(() => httpsCallable(functionsInstance, 'updateConnectionStatus'), [functionsInstance]);
+  const updateConnectionLevelCF = useMemo(() => httpsCallable(functionsInstance, 'updateConnectionLevel'), [functionsInstance]);
+  const getUserHealthStatusesCF = useMemo(() => httpsCallable(functionsInstance, 'getUserHealthStatuses'), [functionsInstance]);
 
   const [levelName, setLevelName] = useState(`Level ${connection.connectionLevel}`);
   const [statusName, setStatusName] = useState(`Status ${connection.connectionStatus}`);
   const [levelDescription, setLevelDescription] = useState('');
-
   const [remoteStatuses, setRemoteStatuses] = useState<{ [key: string]: any }>({});
   const [loadingHealth, setLoadingHealth] = useState(false);
 
-  // Toggle between “health results” and “management”
-  const [showManagement, setShowManagement] = useState(false);
+  type ViewMode = 'results' | 'management' | 'changeLevel';
+  const [viewMode, setViewMode] = useState<ViewMode>('results');
 
-  // Show remote user’s health data if active (status 1) and L2+
-  const shouldShowHealth = connection.connectionStatus === 1 && connection.connectionLevel >= 2;
+  const canManage = connection.connectionStatus === 1;
+  const shouldShowHealth = canManage && connection.connectionLevel >= 2;
 
-  // Load connection level / status
   useEffect(() => {
     if (!visible) return;
     let unsub = false;
@@ -108,7 +96,6 @@ export function ConnectionDetailsModal({
     };
   }, [visible, db, connection.connectionLevel, connection.connectionStatus]);
 
-  // Load remote health once if needed
   useEffect(() => {
     if (!visible) return;
     if (!shouldShowHealth) return;
@@ -123,17 +110,14 @@ export function ConnectionDetailsModal({
           return;
         }
         const cDocData = cDocSnap.data();
-        // Which side's SUUID to fetch
         const remoteSUUID = isRecipient ? cDocData.senderSUUID : cDocData.recipientSUUID;
         if (!remoteSUUID) {
           console.warn('No remoteSUUID found in connection data!');
           return;
         }
-
         const hideDate = connection.connectionLevel === 2 || connection.connectionLevel === 3;
         const result = await getUserHealthStatusesCF({ suuid: remoteSUUID, hideDate });
-        const returnedStatuses = result.data?.statuses || {};
-        setRemoteStatuses(returnedStatuses);
+        setRemoteStatuses(result.data?.statuses || {});
       } catch (err) {
         console.error('Error loading remote user health statuses:', err);
       } finally {
@@ -150,7 +134,6 @@ export function ConnectionDetailsModal({
     getUserHealthStatusesCF,
   ]);
 
-  // Accept/Reject
   async function handleAccept() {
     if (!connection.connectionDocId) {
       Alert.alert('Error', 'Missing connectionDocId for update!');
@@ -159,6 +142,7 @@ export function ConnectionDetailsModal({
     try {
       await updateConnectionStatusCF({ docId: connection.connectionDocId, newStatus: 1 });
       Alert.alert('Accepted', 'Connection accepted successfully!');
+      refreshConnections();
       onClose();
     } catch (err: any) {
       console.error('Accept error:', err);
@@ -181,17 +165,37 @@ export function ConnectionDetailsModal({
     }
   }
 
-  const isPendingNew =
-    connection.connectionStatus === 0 &&
-    connection.connectionLevel === 2 &&
-    isRecipient;
+  const isPendingNew = connection.connectionStatus === 0 && connection.connectionLevel === 2 && isRecipient;
 
-  // Manage or Results?
-  const canManage = connection.connectionStatus === 1;
-  const manageLabel = showManagement ? 'Results' : 'Manage';
-  const handleManagePress = () => setShowManagement(prev => !prev);
+  const manageLabel = (viewMode === 'management') ? 'Results' : 'Manage';
+  function handleManagePress() {
+    if (viewMode === 'management') {
+      setViewMode('results');
+    } else if (viewMode === 'results') {
+      setViewMode('management');
+    }
+  }
 
-  // Renders the top area (ProfileHeader + pending accept/reject)
+  async function handleChangeLevel(newLevel: number) {
+    if (!connection.connectionDocId) {
+      Alert.alert('Error', 'No docId found.');
+      return;
+    }
+    try {
+      // Example call to a CF. Customize as you need:
+      await updateConnectionLevelCF({ 
+        docId: connection.connectionDocId,
+        currentLevel: connection.connectionLevel,
+        newLevel 
+      });
+      Alert.alert('Success', `Updated connection level to ${newLevel}`);
+      setViewMode('management');
+    } catch (err: any) {
+      console.error('updateConnectionLevel error:', err);
+      Alert.alert('Error', err.message || 'Unable to update connection level.');
+    }
+  }
+
   function renderHeader() {
     return (
       <View>
@@ -202,7 +206,7 @@ export function ConnectionDetailsModal({
           hideEditButtons={false}
           connectionType={levelName}
           connectionStatus={statusName}
-          showManageButton={canManage}
+          showManageButton={canManage && viewMode !== 'changeLevel'}
           manageLabel={manageLabel}
           onManagePress={handleManagePress}
         />
@@ -235,42 +239,50 @@ export function ConnectionDetailsModal({
     );
   }
 
-  // Renders the bottom area (health or management)
   function renderFooter() {
-    return (
-      <View>
-        {/* If showManagement is false => show health. If true => show management. */}
-        {canManage && !showManagement && shouldShowHealth && (
-          <View style={{ marginTop: 20 }}>
-            <Text style={[theme.title, { textAlign: 'center', marginBottom: 10 }]}>
-              Test Results
-            </Text>
-            {loadingHealth ? (
-              <Text style={theme.bodyText}>Loading health data...</Text>
-            ) : (
-              <HealthStatusArea stdis={stdis} statuses={remoteStatuses} />
-            )}
-          </View>
-        )}
-
-        {canManage && showManagement && (
-          <ConnectionManagement
-            connection={connection}
-            onChangeType={() => Alert.alert('TODO', 'Change Connection Type action')}
-            onDisconnect={() => Alert.alert('TODO', 'Disconnect action')}
-            onStartFling={() => Alert.alert('TODO', 'Start a Fling action')}
-          />
-        )}
-      </View>
-    );
+    if (!canManage) return null;
+    if (viewMode === 'results') {
+      if (!shouldShowHealth) return null;
+      return (
+        <View style={{ marginTop: 20 }}>
+          <Text style={[theme.title, { textAlign: 'center', marginBottom: 10 }]}>
+            Test Results
+          </Text>
+          {loadingHealth ? (
+            <Text style={theme.bodyText}>Loading health data...</Text>
+          ) : (
+            <HealthStatusArea stdis={stdis} statuses={remoteStatuses} />
+          )}
+        </View>
+      );
+    }
+    if (viewMode === 'management') {
+      return (
+        <ConnectionManagement
+          connection={connection}
+          onChangeType={() => setViewMode('changeLevel')}
+          onDisconnect={() => Alert.alert('TODO', 'Disconnect action')}
+          onStartFling={() => Alert.alert('TODO', 'Start a Fling action')}
+        />
+      );
+    }
+    if (viewMode === 'changeLevel') {
+      return (
+        <ConnectionLevelChange
+          connection={connection}
+          onCancel={() => setViewMode('management')}
+          onLevelChanged={handleChangeLevel}
+        />
+      );
+    }
+    return null;
   }
 
-  // Use a FlatList with empty data, so it can scroll big content. 
   return (
     <ThemedModal visible={visible} onRequestClose={onClose} useBlur>
       <FlatList
-        data={[]} // no actual items
-        keyExtractor={() => 'dummy'} // just something so RN is happy
+        data={[]}
+        keyExtractor={() => 'dummy'}
         style={{ width: '100%' }}
         contentContainerStyle={{ flexGrow: 1 }}
         ListHeaderComponent={renderHeader}
