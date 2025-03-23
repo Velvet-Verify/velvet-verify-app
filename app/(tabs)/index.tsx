@@ -72,7 +72,7 @@ export default function HomeScreen() {
       }
     }
     loadProfile();
-  }, [user, getPublicProfileCF]);
+  }, [user]);
 
   /**
    * Refresh health statuses if the user is logged in and we have STDI data loaded.

@@ -66,11 +66,19 @@ export const getConnections = onCall(
       .where("recipientSUUID", "==", userSUUID)
       .get();
 
+    // Also fetch pending docs (status=0) where the user is the sender
+    const pendingSenderQuery = await connectionsRef
+      .where("connectionStatus", "==", 0)
+      .where("connectionLevel", ">=", 3)
+      .where("senderSUUID", "==", userSUUID)
+      .get();
+
     // Combine all the documents from the queries.
     const allDocs = [
       ...acceptedSenderQuery.docs,
       ...acceptedRecipientQuery.docs,
       ...pendingRecipientQuery.docs,
+      ...pendingSenderQuery.docs,
     ];
 
     // Deduplicate by doc ID

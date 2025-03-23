@@ -20,9 +20,14 @@ export interface Connection {
   createdAt: string | null;
   expiresAt: string | null;
   connectionLevel: number;
-  connectionStatus: number;
+  connectionStatus: number; 
   senderSUUID: string;
   recipientSUUID: string;
+
+  // Possibly references for a second doc
+  pendingDocId?: string;
+  pendingSenderSUUID?: string;
+  pendingLevelName?: string;
 }
 
 interface STI {
@@ -35,7 +40,9 @@ interface ConnectionDetailsModalProps {
   visible: boolean;
   onClose: () => void;
   connection: Connection;
+  // If user is doc's recipient => isRecipient = true
   isRecipient: boolean;
+  mySUUID?: string;
   stdis: STI[];
 }
 
@@ -44,18 +51,27 @@ export function ConnectionDetailsModal({
   onClose,
   connection,
   isRecipient,
+  mySUUID,
   stdis,
 }: ConnectionDetailsModalProps) {
   const theme = useTheme();
   const colorScheme = useColorScheme() ?? 'light';
 
   const { refreshConnections } = useConnections();
-
   const db = useMemo(() => getFirestore(firebaseApp), []);
   const functionsInstance = useMemo<Functions>(() => getFunctions(firebaseApp), []);
-  const updateConnectionStatusCF = useMemo(() => httpsCallable(functionsInstance, 'updateConnectionStatus'), [functionsInstance]);
-  const updateConnectionLevelCF = useMemo(() => httpsCallable(functionsInstance, 'updateConnectionLevel'), [functionsInstance]);
-  const getUserHealthStatusesCF = useMemo(() => httpsCallable(functionsInstance, 'getUserHealthStatuses'), [functionsInstance]);
+  const updateConnectionStatusCF = useMemo(
+    () => httpsCallable(functionsInstance, 'updateConnectionStatus'),
+    [functionsInstance]
+  );
+  const updateConnectionLevelCF = useMemo(
+    () => httpsCallable(functionsInstance, 'updateConnectionLevel'),
+    [functionsInstance]
+  );
+  const getUserHealthStatusesCF = useMemo(
+    () => httpsCallable(functionsInstance, 'getUserHealthStatuses'),
+    [functionsInstance]
+  );
 
   const [levelName, setLevelName] = useState(`Level ${connection.connectionLevel}`);
   const [statusName, setStatusName] = useState(`Status ${connection.connectionStatus}`);
@@ -66,6 +82,7 @@ export function ConnectionDetailsModal({
   type ViewMode = 'results' | 'management' | 'changeLevel';
   const [viewMode, setViewMode] = useState<ViewMode>('results');
 
+  // "canManage" means the doc itself is active (status=1)
   const canManage = connection.connectionStatus === 1;
   const shouldShowHealth = canManage && connection.connectionLevel >= 2;
 
@@ -158,6 +175,7 @@ export function ConnectionDetailsModal({
     try {
       await updateConnectionStatusCF({ docId: connection.connectionDocId, newStatus: 2 });
       Alert.alert('Rejected', 'Connection rejected.');
+      refreshConnections();
       onClose();
     } catch (err: any) {
       console.error('Reject error:', err);
@@ -165,7 +183,10 @@ export function ConnectionDetailsModal({
     }
   }
 
-  const isPendingNew = connection.connectionStatus === 0 && connection.connectionLevel === 2 && isRecipient;
+  // Example check for a "New" request from the other side:
+  const isPendingNew = connection.connectionStatus === 0 
+    && connection.connectionLevel === 2 
+    && isRecipient;
 
   const manageLabel = (viewMode === 'management') ? 'Results' : 'Manage';
   function handleManagePress() {
@@ -182,7 +203,6 @@ export function ConnectionDetailsModal({
       return;
     }
     try {
-      // Example call to a CF. Customize as you need:
       await updateConnectionLevelCF({ 
         docId: connection.connectionDocId,
         currentLevel: connection.connectionLevel,
@@ -190,6 +210,7 @@ export function ConnectionDetailsModal({
       });
       Alert.alert('Success', `Updated connection level to ${newLevel}`);
       setViewMode('management');
+      refreshConnections();
     } catch (err: any) {
       console.error('updateConnectionLevel error:', err);
       Alert.alert('Error', err.message || 'Unable to update connection level.');
@@ -260,6 +281,8 @@ export function ConnectionDetailsModal({
       return (
         <ConnectionManagement
           connection={connection}
+          isRecipient={isRecipient}
+          mySUUID={mySUUID}
           onChangeType={() => setViewMode('changeLevel')}
           onDisconnect={() => Alert.alert('TODO', 'Disconnect action')}
           onStartFling={() => Alert.alert('TODO', 'Start a Fling action')}

@@ -2,57 +2,59 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
+import { useLookups } from '@/src/context/LookupContext';
 
 export interface Connection {
   displayName: string | null;
   imageUrl: string | null;
-  createdAt: string | null;      // We won't display CreatedAt in the new layout
-  expiresAt: string | null;      // We'll only show the date
-  connectionLevel: number;       // L#
-  connectionStatus: number;      // S#
+  createdAt: string | null;
+  expiresAt: string | null;
+  connectionLevel: number;       
+  connectionStatus: number;      
+  senderSUUID: string;
+  recipientSUUID: string;
+  // Possibly references to the hidden pending doc
+  pendingDocId?: string;
+  pendingSenderSUUID?: string;
+  pendingLevelName?: string;
 }
 
 interface ConnectionItemProps {
   connection: Connection;
 }
 
-/**
- * Renders a single connection row:
- * [ avatar ] [ username (L#S#)   ]
- *            [ expiresAt (date) ]
- */
 export function ConnectionItem({ connection }: ConnectionItemProps) {
   const theme = useTheme();
-
-  // Format the expiration date as just the date part:
-  const expiresDate = connection.expiresAt
-    ? new Date(connection.expiresAt).toLocaleDateString()
-    : 'N/A';
+  const { connectionLevels } = useLookups();
 
   const displayName = connection.displayName || 'Unknown';
 
+  // For the doc's own level
+  const lvlObj = connectionLevels[String(connection.connectionLevel)];
+  const activeLevelName = lvlObj?.name ?? `Level ${connection.connectionLevel}`;
+
+  let finalLevelText = activeLevelName;
+  // If there's a hidden pending doc attached to it
+  if (connection.pendingLevelName) {
+    finalLevelText += ` (${connection.pendingLevelName} Request Pending)`;
+  }
+
   return (
     <View style={styles.container}>
-      {/* Avatar/Img on the left */}
       {connection.imageUrl ? (
         <Image source={{ uri: connection.imageUrl }} style={styles.avatar} />
       ) : (
         <View style={styles.placeholderAvatar} />
       )}
 
-      {/* Text block to the right */}
       <View style={styles.infoContainer}>
-        {/* First line: displayName plus (L#S#) */}
         <Text style={[theme.bodyText, styles.topLine]}>
           {displayName} (L{connection.connectionLevel}S{connection.connectionStatus})
         </Text>
 
-        {/* Second line: Expiration date only */}
-        {connection.connectionLevel === 2 && (
-          <Text style={[theme.bodyText, styles.expLine]}>
-            Expires: {expiresDate}
-          </Text>
-        )}
+        <Text style={[theme.bodyText, styles.expLine]}>
+          {finalLevelText}
+        </Text>
       </View>
     </View>
   );
@@ -60,10 +62,9 @@ export function ConnectionItem({ connection }: ConnectionItemProps) {
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',   // Place avatar and text horizontally
-    alignItems: 'center',   // Vertically center them
+    flexDirection: 'row',
+    alignItems: 'center',
     marginVertical: 8,
-    // no border
   },
   avatar: {
     width: 50,
