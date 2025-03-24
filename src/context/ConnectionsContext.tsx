@@ -4,7 +4,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { firebaseApp } from '@/src/firebase/config';
 
 export interface Connection {
-  connectionDocId: string;  // We store doc ID here
+  connectionDocId: string;
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;

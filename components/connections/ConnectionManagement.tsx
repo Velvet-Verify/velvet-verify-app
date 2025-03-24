@@ -10,10 +10,8 @@ import { useLookups } from '@/src/context/LookupContext';
 
 interface ConnectionManagementProps {
   connection: Connection;
-  // If true => user is the doc's recipient
   isRecipient: boolean;
-  // The user’s SUUID, so we can see if they are the pending doc's sender
-  mySUUID?: string;
+  mySUUID?: string;    // The current user's SUUID
   onChangeType?: () => void;
   onDisconnect?: () => void;
   onStartFling?: () => void;
@@ -34,33 +32,40 @@ export function ConnectionManagement({
   const functionsInstance = getFunctions(firebaseApp);
   const updateConnectionStatusCF = httpsCallable(functionsInstance, 'updateConnectionStatus');
 
-  const hasPendingDoc = !!connection.pendingDocId;
+  // We'll show "Cancel X Request" if we do indeed have a pending doc (either purely or merged)
+  // AND the current user is the pending doc's sender.
+  // For a merged doc => pendingDocId + pendingSenderSUUID
+  // For a purely pending doc => connectionStatus=0 + this doc's senderSUUID
+  const hasMergedPending = !!connection.pendingDocId; 
 
-  // Decide if current user is the actual sender of the pending doc
-  // We'll compare pendingSenderSUUID to mySUUID if it's merged,
-  // or if it's a purely pending doc, compare c.senderSUUID to mySUUID:
   let isPendingSender = false;
-  if (hasPendingDoc) {
-    // merged doc => we have connection.pendingSenderSUUID
+  let docIdToCancel: string | undefined;
+  let pendingLevelName: string | undefined;
+
+  if (hasMergedPending) {
+    // The user is the pending doc's sender if connection.pendingSenderSUUID === mySUUID
     isPendingSender = (connection.pendingSenderSUUID === mySUUID);
+    docIdToCancel = connection.pendingDocId;
+    pendingLevelName = connection.pendingLevelName;
   } else if (connection.connectionStatus === 0) {
-    // purely pending doc => check if user is the doc's sender
+    // purely pending doc
+    // The user is the sender if connection.senderSUUID === mySUUID
     isPendingSender = (connection.senderSUUID === mySUUID);
+    docIdToCancel = connection.connectionDocId;
+    // We'll fetch the doc's level name from lookups:
+    const lvlObj = connectionLevels[String(connection.connectionLevel)];
+    pendingLevelName = lvlObj?.name ?? `Level ${connection.connectionLevel}`;
   }
 
-  const showCancel = hasPendingDoc || connection.connectionStatus === 0
-    ? isPendingSender
-    : false;
+  const showCancel = (!!docIdToCancel) && isPendingSender;
 
   async function handleCancelRequest() {
-    const docIdToCancel = connection.pendingDocId || connection.connectionDocId;
     if (!docIdToCancel) return;
-
     try {
       await updateConnectionStatusCF({ docId: docIdToCancel, newStatus: 5 });
       Alert.alert(
         'Cancelled',
-        `${connection.pendingLevelName || 'Connection'} request was cancelled.`
+        `${pendingLevelName || 'Connection'} request was cancelled.`
       );
       refreshConnections();
     } catch (err: any) {
@@ -69,8 +74,9 @@ export function ConnectionManagement({
     }
   }
 
-  const lvlInfo = connectionLevels[String(connection.connectionLevel)];
-  const activeLevelName = lvlInfo?.name ?? `Level ${connection.connectionLevel}`;
+  // For the doc's own (active) level name
+  const lvl = connectionLevels[String(connection.connectionLevel)];
+  const activeLevelName = lvl?.name ?? `Level ${connection.connectionLevel}`;
 
   return (
     <View style={[theme.centerContainer, styles.container]}>
@@ -79,7 +85,7 @@ export function ConnectionManagement({
       <View style={styles.buttonContainer}>
         {showCancel ? (
           <ThemedButton
-            title={`Cancel ${connection.pendingLevelName || activeLevelName} Request`}
+            title={`Cancel ${pendingLevelName || activeLevelName} Request`}
             variant="primary"
             onPress={handleCancelRequest}
             style={styles.button}

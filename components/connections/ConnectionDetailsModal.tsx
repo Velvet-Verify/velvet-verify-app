@@ -1,4 +1,5 @@
 // components/connections/ConnectionDetailsModal.tsx
+
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Button, Alert, FlatList } from 'react-native';
 import { useTheme } from 'styled-components/native';
@@ -12,6 +13,8 @@ import { useConnections } from '@/src/context/ConnectionsContext';
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable, Functions } from 'firebase/functions';
 import { firebaseApp } from '@/src/firebase/config';
+import { useLookups } from '@/src/context/LookupContext';
+import { PendingElevation } from './PendingElevation';
 
 export interface Connection {
   connectionDocId?: string;
@@ -20,14 +23,16 @@ export interface Connection {
   createdAt: string | null;
   expiresAt: string | null;
   connectionLevel: number;
-  connectionStatus: number; 
+  connectionStatus: number; // 0 => pending, 1 => active
   senderSUUID: string;
   recipientSUUID: string;
-
-  // Possibly references for a second doc
+  // References for a merged (pending) doc
   pendingDocId?: string;
   pendingSenderSUUID?: string;
+  pendingRecipientSUUID?: string;
   pendingLevelName?: string;
+  // Optionally, you might include pendingLevelId if available
+  pendingLevelId?: number;
 }
 
 interface STI {
@@ -40,11 +45,16 @@ interface ConnectionDetailsModalProps {
   visible: boolean;
   onClose: () => void;
   connection: Connection;
-  // If user is doc's recipient => isRecipient = true
+  /**
+   * This prop indicates if the current user is the base doc’s recipient.
+   * (For merged docs the pending doc’s recipient is stored separately.)
+   */
   isRecipient: boolean;
   mySUUID?: string;
   stdis: STI[];
 }
+
+type ViewMode = 'results' | 'management' | 'changeLevel' | 'pendingElevation';
 
 export function ConnectionDetailsModal({
   visible,
@@ -56,8 +66,9 @@ export function ConnectionDetailsModal({
 }: ConnectionDetailsModalProps) {
   const theme = useTheme();
   const colorScheme = useColorScheme() ?? 'light';
-
+  const { connectionLevels } = useLookups();
   const { refreshConnections } = useConnections();
+
   const db = useMemo(() => getFirestore(firebaseApp), []);
   const functionsInstance = useMemo<Functions>(() => getFunctions(firebaseApp), []);
   const updateConnectionStatusCF = useMemo(
@@ -79,17 +90,28 @@ export function ConnectionDetailsModal({
   const [remoteStatuses, setRemoteStatuses] = useState<{ [key: string]: any }>({});
   const [loadingHealth, setLoadingHealth] = useState(false);
 
-  type ViewMode = 'results' | 'management' | 'changeLevel';
-  const [viewMode, setViewMode] = useState<ViewMode>('results');
-
-  // "canManage" means the doc itself is active (status=1)
+  // The base doc is manageable if active (status===1)
   const canManage = connection.connectionStatus === 1;
   const shouldShowHealth = canManage && connection.connectionLevel >= 2;
 
+  // Determine if there is a merged pending doc attached to the base doc.
+  const hasMergedPending = !!connection.pendingDocId;
+  // For merged docs we now store the pending doc’s recipient in connection.pendingRecipientSUUID.
+  const isPendingDocRecipient = connection.pendingRecipientSUUID === mySUUID;
+
+  // Default view mode is 'results' but for recipients with a pending elevation, default to 'pendingElevation'
+  const [viewMode, setViewMode] = useState<ViewMode>('results');
+  useEffect(() => {
+    if (!visible) return;
+    if (canManage && hasMergedPending && isPendingDocRecipient) {
+      setViewMode('pendingElevation');
+    }
+  }, [visible, canManage, hasMergedPending, isPendingDocRecipient]);
+
+  // Load base doc's level and status details
   useEffect(() => {
     if (!visible) return;
     let unsub = false;
-
     (async () => {
       try {
         const levelRef = doc(db, 'connectionLevels', String(connection.connectionLevel));
@@ -107,17 +129,14 @@ export function ConnectionDetailsModal({
         console.error('Error loading level/status docs:', err);
       }
     })();
-
-    return () => {
-      unsub = true;
-    };
+    return () => { unsub = true; };
   }, [visible, db, connection.connectionLevel, connection.connectionStatus]);
 
+  // Load remote health statuses if applicable
   useEffect(() => {
     if (!visible) return;
     if (!shouldShowHealth) return;
     if (!connection.connectionDocId) return;
-
     setLoadingHealth(true);
     (async function loadRemoteHealth() {
       try {
@@ -141,17 +160,16 @@ export function ConnectionDetailsModal({
         setLoadingHealth(false);
       }
     })();
-  }, [
-    visible,
-    shouldShowHealth,
-    connection.connectionDocId,
-    connection.connectionLevel,
-    isRecipient,
-    db,
-    getUserHealthStatusesCF,
-  ]);
+  }, [visible, shouldShowHealth, connection.connectionDocId, connection.connectionLevel, isRecipient, db, getUserHealthStatusesCF]);
 
-  async function handleAccept() {
+  // For purely pending "New" docs
+  const isPendingNew = (
+    connection.connectionStatus === 0 &&
+    connection.connectionLevel === 2 &&
+    isRecipient
+  );
+
+  async function handleAcceptNew() {
     if (!connection.connectionDocId) {
       Alert.alert('Error', 'Missing connectionDocId for update!');
       return;
@@ -167,7 +185,7 @@ export function ConnectionDetailsModal({
     }
   }
 
-  async function handleReject() {
+  async function handleRejectNew() {
     if (!connection.connectionDocId) {
       Alert.alert('Error', 'Missing connectionDocId for update!');
       return;
@@ -183,18 +201,9 @@ export function ConnectionDetailsModal({
     }
   }
 
-  // Example check for a "New" request from the other side:
-  const isPendingNew = connection.connectionStatus === 0 
-    && connection.connectionLevel === 2 
-    && isRecipient;
-
   const manageLabel = (viewMode === 'management') ? 'Results' : 'Manage';
   function handleManagePress() {
-    if (viewMode === 'management') {
-      setViewMode('results');
-    } else if (viewMode === 'results') {
-      setViewMode('management');
-    }
+    setViewMode(prev => (prev === 'management' ? 'results' : 'management'));
   }
 
   async function handleChangeLevel(newLevel: number) {
@@ -227,7 +236,7 @@ export function ConnectionDetailsModal({
           hideEditButtons={false}
           connectionType={levelName}
           connectionStatus={statusName}
-          showManageButton={canManage && viewMode !== 'changeLevel'}
+          showManageButton={canManage && viewMode !== 'changeLevel' && viewMode !== 'pendingElevation'}
           manageLabel={manageLabel}
           onManagePress={handleManagePress}
         />
@@ -245,12 +254,12 @@ export function ConnectionDetailsModal({
             <View style={styles.buttonRow}>
               <Button
                 title="Reject"
-                onPress={handleReject}
+                onPress={handleRejectNew}
                 color={theme.buttonSecondary.backgroundColor}
               />
               <Button
                 title="Accept"
-                onPress={handleAccept}
+                onPress={handleAcceptNew}
                 color={theme.buttonPrimary.backgroundColor}
               />
             </View>
@@ -262,6 +271,17 @@ export function ConnectionDetailsModal({
 
   function renderFooter() {
     if (!canManage) return null;
+    if (viewMode === 'pendingElevation') {
+      return (
+        <PendingElevation
+          baseDocId={connection.connectionDocId!}
+          pendingDocId={connection.pendingDocId!}
+          pendingLevelName={connection.pendingLevelName!}
+          pendingLevelId={connection.pendingLevelId}  // May be undefined; PendingElevation will infer if needed.
+          onClose={onClose}
+        />
+      );
+    }
     if (viewMode === 'results') {
       if (!shouldShowHealth) return null;
       return (
@@ -322,7 +342,8 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '60%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 10,
   },
 });

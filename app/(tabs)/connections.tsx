@@ -34,19 +34,20 @@ export interface Connection {
 }
 
 /** 
- * We'll produce a 'DisplayConnection' for each pair. 
- * If there's a second doc pending for that pair, we store it in memory fields
- * (pendingDocId, pendingSenderSUUID, pendingLevelName).
+ * For merging, we store info about a second doc:
+ * pendingDocId, pendingSenderSUUID, pendingRecipientSUUID, pendingLevelName
  */
 interface DisplayConnection extends Connection {
-  pendingDocId?: string;         // ID of the second doc
-  pendingSenderSUUID?: string;   // who created the pending doc
-  pendingLevelName?: string;     // e.g. "Friend", "Bond"
+  pendingDocId?: string;
+  pendingSenderSUUID?: string;
+  pendingRecipientSUUID?: string;
+  pendingLevelName?: string;
 }
 
 export default function ConnectionsScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+
   const { connections, loading, refreshConnections } = useConnections();
   const { connectionLevels } = useLookups();
 
@@ -76,21 +77,17 @@ export default function ConnectionsScreen() {
 
   // 2) Build final array, skipping a second display for the pending doc if an active doc also exists
   const displayConnections = useMemo<DisplayConnection[]>(() => {
-    // group docs by (sender,recipient) ignoring order
     function getPairKey(c: Connection) {
       const pair = [c.senderSUUID, c.recipientSUUID].sort();
       return pair.join("_");
     }
 
-    // store pair => { active?: Connection, pending?: Connection }
     const pairMap = new Map<string, { active?: Connection; pending?: Connection }>();
 
-    // put each doc in pairMap
     for (const c of connections) {
-      // If you want to also include status=2,5, etc. in final display, do so.
-      // We'll skip them if we only want active(1) or pending(0).
-      if (![0,1].includes(c.connectionStatus)) {
-        // or if you want to show them, remove this continue
+      // Skip docs with status=2 (rejected), 5 (cancelled), etc. 
+      // We only want to show active(1) or pending(0).
+      if (![0, 1].includes(c.connectionStatus)) {
         continue;
       }
       const key = getPairKey(c);
@@ -110,30 +107,23 @@ export default function ConnectionsScreen() {
 
     for (const [key, { active, pending }] of pairMap.entries()) {
       if (active && pending) {
-        // We have both an active doc & a pending doc for this pair.
-        // We ONLY want to display the active doc. 
-        // But we store references to the pending doc inside the active doc
-        // so we can show "(Friend Request Pending)" or let them "Cancel."
-
-        // e.g. find the pending doc’s level name
+        // Both an active doc & a pending doc
         const lvl = connectionLevels[String(pending.connectionLevel)];
         const pendingLevelName = lvl?.name ?? `Level ${pending.connectionLevel}`;
 
-        // create a new DisplayConnection object:
         const mergedActive: DisplayConnection = {
           ...active,
-          // Attach pending doc references
           pendingDocId: pending.connectionDocId,
           pendingSenderSUUID: pending.senderSUUID,
+          pendingRecipientSUUID: pending.recipientSUUID,
           pendingLevelName,
+          pendingLevelId: pending.connectionLevel,
         };
         result.push(mergedActive);
 
       } else if (active) {
-        // only active doc => just display it as-is
         result.push(active);
       } else if (pending) {
-        // only pending doc => display it normally
         result.push(pending);
       }
     }
@@ -209,9 +199,8 @@ export default function ConnectionsScreen() {
             setDetailsModalVisible(false);
             setSelectedConnection(null);
           }}
-          // pass the item with potential pending data
           connection={selectedConnection}
-          // If the user is the doc's recipient => isRecipient = true
+          // If the user is the base doc's recipient => isRecipient = true
           isRecipient={selectedConnection.recipientSUUID === mySUUID}
           mySUUID={mySUUID}
           stdis={stdis}
