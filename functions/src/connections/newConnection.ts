@@ -66,7 +66,13 @@ export const newConnection = onCall(callableOptions, async (
   try {
     // Look up the recipient by email in Firebase Auth.
     recipientUser = await admin.auth().getUserByEmail(recipientEmail);
-    console.log("Recipient found. UID:", recipientUser.uid);
+    // console.log("Recipient found. UID:", recipientUser.uid);
+    if (recipientUser.uid === senderUid) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Cannot create a connection with yourself."
+      );
+    }
   } catch (e) {
     console.log("No user found for email:", recipientEmail, "Error:", e);
     // For security, if no user is found, simply return a uniform message.
@@ -89,7 +95,9 @@ export const newConnection = onCall(callableOptions, async (
   const existingQuery = await connectionsRef
     .where("senderSUUID", "in", [senderSUUID, recipientSUUID])
     .where("recipientSUUID", "in", [senderSUUID, recipientSUUID])
+    .where("connectionStatus", "<", 2)
     .get();
+
   if (!existingQuery.empty) {
     console.log("Existing connection found.");
     return {message: "An active or pending connection already exists."};

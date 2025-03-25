@@ -15,6 +15,7 @@ import { getFunctions, httpsCallable, Functions } from 'firebase/functions';
 import { firebaseApp } from '@/src/firebase/config';
 import { useLookups } from '@/src/context/LookupContext';
 import { PendingElevation } from './PendingElevation';
+import { ConnectionDisconnect } from './ConnectionDisconnect';
 
 export interface Connection {
   connectionDocId?: string;
@@ -54,7 +55,12 @@ interface ConnectionDetailsModalProps {
   stdis: STI[];
 }
 
-type ViewMode = 'results' | 'management' | 'changeLevel' | 'pendingElevation';
+type ViewMode =
+  | 'results'
+  | 'management'
+  | 'changeLevel'
+  | 'pendingElevation'
+  | 'disconnect';
 
 export function ConnectionDetailsModal({
   visible,
@@ -304,8 +310,8 @@ export function ConnectionDetailsModal({
           isRecipient={isRecipient}
           mySUUID={mySUUID}
           onChangeType={() => setViewMode('changeLevel')}
-          onDisconnect={() => Alert.alert('TODO', 'Disconnect action')}
-          onStartFling={() => Alert.alert('TODO', 'Start a Fling action')}
+          onDisconnect={() => setViewMode('disconnect')}
+          onRequestExposure={() => Alert.alert('TODO', 'Request Exposure Alerts action')}
         />
       );
     }
@@ -315,6 +321,21 @@ export function ConnectionDetailsModal({
           connection={connection}
           onCancel={() => setViewMode('management')}
           onLevelChanged={handleChangeLevel}
+        />
+      );
+    }
+    if (viewMode === 'disconnect') {
+      return (
+        <ConnectionDisconnect
+          baseDocId={connection.connectionDocId!}
+          mySUUID={mySUUID!}
+          // figure out who the other user is:
+          otherSUUID={
+            mySUUID === connection.senderSUUID
+              ? connection.recipientSUUID
+              : connection.senderSUUID
+          }
+          onClose={() => setViewMode('management')}
         />
       );
     }

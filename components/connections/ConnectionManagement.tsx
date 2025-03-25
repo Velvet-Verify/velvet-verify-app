@@ -1,3 +1,5 @@
+// components/connections/ConnectionManagement.tsx
+
 import React from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useTheme } from 'styled-components/native';
@@ -14,7 +16,8 @@ interface ConnectionManagementProps {
   mySUUID?: string;    // The current user's SUUID
   onChangeType?: () => void;
   onDisconnect?: () => void;
-  onStartFling?: () => void;
+  /** Renamed callback if you want, or keep onStartFling if you prefer: */
+  onRequestExposure?: () => void;
 }
 
 export function ConnectionManagement({
@@ -23,7 +26,7 @@ export function ConnectionManagement({
   mySUUID,
   onChangeType,
   onDisconnect,
-  onStartFling,
+  onRequestExposure,
 }: ConnectionManagementProps) {
   const theme = useTheme();
   const { refreshConnections } = useConnections();
@@ -34,8 +37,6 @@ export function ConnectionManagement({
 
   // We'll show "Cancel X Request" if we do indeed have a pending doc (either purely or merged)
   // AND the current user is the pending doc's sender.
-  // For a merged doc => pendingDocId + pendingSenderSUUID
-  // For a purely pending doc => connectionStatus=0 + this doc's senderSUUID
   const hasMergedPending = !!connection.pendingDocId; 
 
   let isPendingSender = false;
@@ -78,6 +79,13 @@ export function ConnectionManagement({
   const lvl = connectionLevels[String(connection.connectionLevel)];
   const activeLevelName = lvl?.name ?? `Level ${connection.connectionLevel}`;
 
+  // We only show the "Request Exposure Alerts" button if:
+  // - connectionStatus === 1 (active)
+  // - connectionLevel === 2 (i.e. "New")
+  const shouldShowExposureButton =
+    connection.connectionStatus === 1 &&
+    connection.connectionLevel === 2;
+
   return (
     <View style={[theme.centerContainer, styles.container]}>
       <Text style={[theme.title, styles.title]}>Manage Connection</Text>
@@ -105,12 +113,16 @@ export function ConnectionManagement({
           onPress={onDisconnect}
           style={styles.button}
         />
-        <ThemedButton
-          title="Start a Fling"
-          variant="primary"
-          onPress={onStartFling}
-          style={styles.button}
-        />
+
+        {/* Conditionally render the renamed button if level=2 & status=1 */}
+        {shouldShowExposureButton && (
+          <ThemedButton
+            title="Request Exposure Alerts"
+            variant="primary"
+            onPress={onRequestExposure}
+            style={styles.button}
+          />
+        )}
       </View>
     </View>
   );
