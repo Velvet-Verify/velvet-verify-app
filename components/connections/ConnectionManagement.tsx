@@ -97,6 +97,15 @@ export function ConnectionManagement({
   // and often for a shorter period.
   // Would you like to continue with limited alerts or upgrade to premium for 
   // full STD‑specific alerts and shorter testing windows?”
+
+  //   Buttons could be:
+  // 	•	Continue (accept the free, non-specific alerts)
+  // 	•	Upgrade to Premium (open your membership flow)
+
+  // That way the user understands:
+  // 	1.	They do still get alerts as a free user.
+  // 	2.	The difference is that they won’t know which STD triggered the alert (Chlamydia, gonorrhea, etc.) and must assume the maximum window.
+  // 	3.	Premium provides clarity on which STD, letting them test only for that one and possibly reduce the waiting period.
   const shouldShowExposureButton =
     connection.connectionStatus === 1 &&
     connection.connectionLevel === 2;

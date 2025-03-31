@@ -1,5 +1,5 @@
 // components/SubmitTestResults.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,107 +8,100 @@ import {
   Platform,
   TextInput,
   StyleSheet,
-} from "react-native";
-import { useRouter } from "expo-router";
-import {
-  getFirestore,
-  collection,
-  addDoc,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-import { firebaseApp } from "@/src/firebase/config";
-import { useAuth } from "@/src/context/AuthContext";
-import { getFunctions, httpsCallable } from "firebase/functions"; // Use cloud function
-import { useStdis } from "@/hooks/useStdis";
-import { useTheme } from "styled-components/native";
-import { ThemedButton } from "@/components/ui/ThemedButton";
-import { ResultIcon, ResultType } from "@/components/ui/ResultIcon";
-import { DatePickerModal } from "@/components/ui/DatePickerModal";
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '@/src/context/AuthContext';
+import { useStdis } from '@/hooks/useStdis';
+import { useTheme } from 'styled-components/native';
+
+import { getFunctions, httpsCallable } from 'firebase/functions'; // Cloud function
+import { firebaseApp } from '@/src/firebase/config';
+
+import { ThemedButton } from '@/components/ui/ThemedButton';
+import { ResultIcon, ResultType } from '@/components/ui/ResultIcon';
+import { DatePickerModal } from '@/components/ui/DatePickerModal';
 
 type SubmitTestResultsProps = {
   onClose: () => void;
 };
 
+/**
+ * This screen gathers user input (STDI + result + test date),
+ * then calls the 'submitTestResults' CF to handle:
+ *  1) Recording new testResults for the user
+ *  2) Updating user’s healthStatus
+ *  3) Possibly updating bonded partners’ negative results
+ */
 export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
   const theme = useTheme();
   const { user } = useAuth();
   const router = useRouter();
-  const db = getFirestore(firebaseApp);
+
+  // Load STDI definitions (like "chlamydia", "gonorrhea", etc.)
   const { stdis, loading: stdisLoading } = useStdis();
 
-  // Initialize Firebase Functions and get the callable reference.
+  // Cloud functions setup
   const functionsInstance = getFunctions(firebaseApp);
-  const computeHashedIdCF = httpsCallable(functionsInstance, "computeHashedId");
+  // We'll call the 'submitTestResults' function we wrote on the server
+  const submitTestResultsCF = httpsCallable(functionsInstance, 'submitTestResults');
 
+  // Local state for test date & picking results
   const [testDate, setTestDate] = useState(new Date());
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   const [results, setResults] = useState<{ [key: string]: ResultType }>({});
   const [submitting, setSubmitting] = useState(false);
 
-  // Initialize results to "notTested" when STDIs load.
+  // On first load of the STDI list, initialize each as "notTested"
   useEffect(() => {
     if (!stdisLoading && stdis.length > 0) {
       const initialResults: { [key: string]: ResultType } = {};
       stdis.forEach((stdi) => {
-        initialResults[stdi.id] = "notTested";
+        initialResults[stdi.id] = 'notTested';
       });
       setResults(initialResults);
     }
   }, [stdis, stdisLoading]);
 
+  // Called when the user taps "Submit"
   const handleSubmit = async () => {
     if (!user) {
-      Alert.alert("Error", "User not found or not initialized.");
+      Alert.alert('Error', 'User not found or not initialized.');
       return;
     }
     setSubmitting(true);
-    try {
-      for (const stdi of stdis) {
-        const resultOption = results[stdi.id];
-        if (resultOption === "notTested") continue;
-        const booleanResult = resultOption === "positive";
 
-        // Compute the test status hash (TSUUID) using the cloud function.
-        const tsResult = await computeHashedIdCF({ hashType: "test" });
-        const tsuuid = tsResult.data.hashedId;
-        await addDoc(collection(db, "testResults"), {
-          STDI: stdi.id,
-          TSUUID: tsuuid,
-          result: booleanResult,
-          testDate: testDate,
+    try {
+      // Build a payload of STDI results to send to the CF
+      // We'll skip anything marked "notTested."
+      const resultsToSubmit = stdis
+        .filter((stdi) => results[stdi.id] !== 'notTested')
+        .map((stdi) => {
+          const resultOption = results[stdi.id];
+          const booleanResult = resultOption === 'positive';
+          return {
+            stdiId: stdi.id,
+            result: booleanResult,              // true=positive, false=negative
+            testDate: testDate.toISOString(),   // pass ISO string to the CF
+          };
         });
 
-        // Compute the health status hash (HSUUID) using the cloud function.
-        const hsResult = await computeHashedIdCF({ hashType: "health" });
-        const hsUUID = hsResult.data.hashedId;
-        const hsDocId = `${hsUUID}_${stdi.id}`;
-        const hsDocRef = doc(db, "healthStatus", hsDocId);
-        const hsDocSnap = await getDoc(hsDocRef);
-        if (!hsDocSnap.exists()) {
-          await setDoc(hsDocRef, {
-            testResult: booleanResult,
-            testDate: testDate,
-          });
-        } else {
-          const currentTestDate = hsDocSnap.data().testDate.toDate();
-          if (testDate > currentTestDate) {
-            await updateDoc(hsDocRef, {
-              testResult: booleanResult,
-              testDate: testDate,
-            });
-          }
-        }
+      if (resultsToSubmit.length === 0) {
+        Alert.alert('No Results', 'Please select at least one STDI to test.');
+        setSubmitting(false);
+        return;
       }
-      Alert.alert("Success", "Test results submitted successfully.", [
-        { text: "OK", onPress: () => onClose() },
+
+      // Call the CF
+      const response = await submitTestResultsCF({ results: resultsToSubmit });
+      // If it returns { success: true }, we assume success
+      Alert.alert('Success', 'Test results submitted successfully.', [
+        { text: 'OK', onPress: () => onClose() },
       ]);
     } catch (error: any) {
-      console.error("Error submitting test results:", error);
-      Alert.alert("Error", error.message);
+      console.error('Error submitting test results:', error);
+      Alert.alert('Error', error.message ?? 'Failed to submit test results.');
     }
+
     setSubmitting(false);
   };
 
@@ -124,18 +117,18 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
     <View style={styles.container}>
       <Text style={[styles.title, theme.title]}>Submit Test Results</Text>
 
-      {/* Date row: label and Select Date button or text input on web */}
+      {/* Date row: label and either 'Select Date' button (mobile) or text input (web) */}
       <View style={theme.dateRow}>
         <Text style={styles.label}>
           Test Date: {testDate.toLocaleDateString()}
         </Text>
-        {Platform.OS === "web" ? (
+        {Platform.OS === 'web' ? (
           <TextInput
-            style={[theme.input, { width: "40%" }]}
+            style={[theme.input, { width: '40%' }]}
             placeholder="YYYY-MM-DD"
             value={testDate.toISOString().slice(0, 10)}
             onChangeText={(val) => {
-              const [year, month, day] = val.split("-").map(Number);
+              const [year, month, day] = val.split('-').map(Number);
               if (year && month && day) {
                 setTestDate(new Date(year, month - 1, day));
               }
@@ -149,7 +142,8 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
           />
         )}
       </View>
-      {Platform.OS !== "web" && (
+
+      {Platform.OS !== 'web' && (
         <DatePickerModal
           isVisible={isDatePickerVisible}
           mode="date"
@@ -177,31 +171,31 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
                 <View style={styles.optionContainer}>
                   <ResultIcon
                     result="negative"
-                    active={currentResult === "negative"}
+                    active={currentResult === 'negative'}
                     onPress={() =>
                       setResults((prev) => ({
                         ...prev,
-                        [item.id]: "negative",
+                        [item.id]: 'negative',
                       }))
                     }
                   />
                   <ResultIcon
                     result="notTested"
-                    active={currentResult === "notTested"}
+                    active={currentResult === 'notTested'}
                     onPress={() =>
                       setResults((prev) => ({
                         ...prev,
-                        [item.id]: "notTested",
+                        [item.id]: 'notTested',
                       }))
                     }
                   />
                   <ResultIcon
                     result="positive"
-                    active={currentResult === "positive"}
+                    active={currentResult === 'positive'}
                     onPress={() =>
                       setResults((prev) => ({
                         ...prev,
-                        [item.id]: "positive",
+                        [item.id]: 'positive',
                       }))
                     }
                   />
@@ -219,7 +213,7 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
           onPress={onClose}
         />
         <ThemedButton
-          title={submitting ? "Submitting..." : "Submit"}
+          title={submitting ? 'Submitting...' : 'Submit'}
           onPress={handleSubmit}
           disabled={submitting}
           variant="primary"
@@ -229,17 +223,18 @@ export default function SubmitTestResults({ onClose }: SubmitTestResultsProps) {
   );
 }
 
+// Style definitions
 const styles = StyleSheet.create({
   loadingContainer: {
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
   },
   container: {
     padding: 20,
   },
   title: {
-    // Kept minimal since theme.title is used
+    // Minimal since we use theme.title for color/fonts
     marginBottom: 10,
   },
   label: {
@@ -248,13 +243,13 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-    textAlign: "center",
+    textAlign: 'center',
     marginBottom: 10,
   },
   itemRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginVertical: 5,
   },
   itemText: {
@@ -262,13 +257,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   optionContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
   },
   buttonRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
+    flexDirection: 'row',
+    justifyContent: 'space-around',
     marginTop: 20,
   },
 });
