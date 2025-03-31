@@ -1,88 +1,111 @@
 // app/(tabs)/index.tsx
+
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Button,
   SafeAreaView,
   Text,
   View,
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/src/context/AuthContext';
 import { useRouter } from 'expo-router';
-import { firebaseApp } from '@/src/firebase/config';
-import * as ImagePicker from 'expo-image-picker';
-import {
-  getStorage,
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from 'firebase/storage';
-import SubmitTestResults from '@/components/health/SubmitTestResults';
-import { useStdis } from '@/hooks/useStdis';
 import { useTheme } from 'styled-components/native';
-import { ThemedModal } from '@/components/ui/ThemedModal';
-import { ProfileHeader } from '@/components/profile/ProfileHeader';
-import { HealthStatusArea } from '@/components/health/HealthStatusArea';
-import { EditProfileModal } from '@/components/profile/EditProfileModal';
+
+import { useAuth } from '@/src/context/AuthContext';
+import { firebaseApp } from '@/src/firebase/config';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { getFirestore, doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
+import { useStdis } from '@/hooks/useStdis';
+
+import SubmitTestResults from '@/components/health/SubmitTestResults';
+import { HealthStatusArea } from '@/components/health/HealthStatusArea';
+import { ProfileHeader } from '@/components/profile/ProfileHeader';
+import { EditProfileModal } from '@/components/profile/EditProfileModal';
+import { ThemedModal } from '@/components/ui/ThemedModal';
+
+/**
+ * HomeScreen with advanced UI:
+ * - If no user => route /Login
+ * - If no public profile => route /ProfileSetup
+ * - Else show profile header, health status, ability to edit profile, submit test results, etc.
+ */
 export default function HomeScreen() {
   const theme = useTheme();
   const { user, logout } = useAuth();
   const router = useRouter();
-  const storage = getStorage(firebaseApp);
   const insets = useSafeAreaInsets();
+  const storage = getStorage(firebaseApp);
+
+  // Local state
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
   const [healthStatuses, setHealthStatuses] = useState<{ [key: string]: any } | null>(null);
+
+  // UI modals
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
   const [submitTestModalVisible, setSubmitTestModalVisible] = useState(false);
+
+  // STDI loading
   const { stdis, loading: stdisLoading } = useStdis();
 
-  // Initialize Firebase Functions
+  // Functions
   const functionsInstance = getFunctions(firebaseApp);
   const computeHashedIdCF = httpsCallable(functionsInstance, 'computeHashedId');
   const getPublicProfileCF = httpsCallable(functionsInstance, 'getPublicProfile');
   const getUserHealthStatusesCF = httpsCallable(functionsInstance, 'getUserHealthStatuses');
 
   /**
-   * Load the public profile once when the user changes to a logged-in user.
+   * Main effect: if user is not logged in => /Login.
+   * Otherwise fetch the public profile doc. If none => /ProfileSetup.
    */
   useEffect(() => {
+    if (!user) {
+      // not logged in => just route to /Login
+      router.replace('/Login');
+      return;
+    }
+
     async function loadProfile() {
-      if (!user) {
-        // If user is null, we can reset or do nothing
-        setProfileData(null);
-        setLoading(false);
-        return;
-      }
       try {
-        // Retrieve public profile data via CF
         const result = await getPublicProfileCF({});
-        const profile = result.data;
-        setProfileData(profile);
+        setProfileData(result.data); // We have a valid profile
       } catch (error: any) {
-        console.error('Error loading profile:', error);
-        Alert.alert('Error', error.message);
+        // If doc not found => user must set up
+        if (
+          error.message?.includes('not-found') ||
+          error?.code === 'functions/not-found'
+        ) {
+          router.replace('/(onboarding)/ProfileSetup');
+          return;
+        } else {
+          Alert.alert('Profile Error', error.message || 'Error loading profile');
+        }
       } finally {
         setLoading(false);
       }
     }
+
     loadProfile();
   }, [user]);
 
   /**
-   * Refresh health statuses if the user is logged in and we have STDI data loaded.
+   * Called whenever user or STDI data becomes available to fetch health statuses.
    */
+  useEffect(() => {
+    if (user && stdis.length > 0) {
+      refreshHealthStatuses();
+    }
+  }, [user, stdis]);
+
+  // Helper to load remote user’s health statuses
   const refreshHealthStatuses = async () => {
-    if (!user) return; // skip if no user
-    if (!stdis || stdis.length === 0) return; // skip if no STDI
+    if (!user) return;
+    if (!stdis || stdis.length === 0) return;
+
     try {
-      // We do NOT call user.getIdToken(true). Firestore Functions
-      // automatically attach the current token.
       const result = await getUserHealthStatusesCF({});
       const data = result.data as any;
       setHealthStatuses(data?.statuses || {});
@@ -91,21 +114,7 @@ export default function HomeScreen() {
     }
   };
 
-  /**
-   * Only refresh if user changes from null -> logged in
-   * or if the STDI array changes from empty -> loaded.
-   */
-  useEffect(() => {
-    if (user && stdis.length > 0) {
-      refreshHealthStatuses();
-    }
-    // We do not add getUserHealthStatusesCF as a dependency
-    // so this won't re-run every function reference change.
-  }, [user, stdis]);
-
-  /**
-   * Logout logic
-   */
+  // Logout
   const handleLogout = async () => {
     try {
       await logout();
@@ -116,33 +125,35 @@ export default function HomeScreen() {
   };
 
   /**
-   * Combined update profile function for EditProfileModal
+   * Called when saving changes in EditProfileModal
    */
-  const handleUpdateProfile = async (updatedDisplayName: string, updatedPhotoUri: string) => {
-    try {
-      if (!user) throw new Error('User is not logged in.');
+  const handleUpdateProfile = async (
+    updatedDisplayName: string,
+    updatedPhotoUri: string
+  ) => {
+    if (!user) {
+      Alert.alert('Error', 'User is not logged in.');
+      return;
+    }
 
-      // Just get a token if you like. Usually not needed:
-      // await user.getIdToken(/* forceRefresh = false */);
+    try {
+      // 1) Compute the doc ID => psuuid
       const result = await computeHashedIdCF({ hashType: 'profile' });
       const psuuid = result.data.hashedId;
 
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const db = getFirestore(firebaseApp);
-
-      const profileDocRef = doc(db, 'publicProfile', psuuid);
+      // 2) If the photo changed, delete old, upload new
       let finalPhotoUrl = updatedPhotoUri;
-
       if (updatedPhotoUri !== profileData?.imageUrl) {
-        if (updatedPhotoUri) {
-          if (profileData?.imageUrl) {
-            try {
-              const oldRef = ref(storage, `profileImages/${psuuid}.jpg`);
-              await deleteObject(oldRef);
-            } catch (error) {
-              console.error('Error deleting old image:', error);
-            }
+        // Remove old image if it exists
+        if (profileData?.imageUrl) {
+          try {
+            const oldRef = ref(storage, `profileImages/${psuuid}.jpg`);
+            await deleteObject(oldRef);
+          } catch (delError) {
+            console.error('Error deleting old image:', delError);
           }
+        }
+        if (updatedPhotoUri) {
           const response = await fetch(updatedPhotoUri);
           const blob = await response.blob();
           const storageRef = ref(storage, `profileImages/${psuuid}.jpg`);
@@ -153,49 +164,56 @@ export default function HomeScreen() {
         }
       }
 
-      await updateDoc(profileDocRef, {
+      // 3) Update the publicProfile doc
+      const db = getFirestore(firebaseApp);
+      const docRef = doc(db, 'publicProfile', psuuid);
+      await updateDoc(docRef, {
         displayName: updatedDisplayName,
         imageUrl: finalPhotoUrl,
       });
+
+      // 4) Update local state
       setProfileData({
         ...profileData,
         displayName: updatedDisplayName,
         imageUrl: finalPhotoUrl,
       });
+
+      // 5) close modal
       setEditProfileModalVisible(false);
-    } catch (error: any) {
-      console.error('Error updating profile:', error);
-      Alert.alert('Error', error.message);
+    } catch (err: any) {
+      console.error('Error updating profile:', err);
+      Alert.alert('Error', err.message);
     }
   };
 
-  /**
-   * Optional pickImageFromGallery / takePhoto logic
-   * omitted for brevity...
-   */
-
+  // If still loading, show spinner
   if (loading) {
     return (
       <SafeAreaView style={theme.container}>
-        <View style={{ justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <ActivityIndicator size="large" color={theme.buttonPrimary.backgroundColor} />
+        <View style={{ alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          <ActivityIndicator
+            color={theme.buttonPrimary.backgroundColor}
+            size="large"
+          />
         </View>
       </SafeAreaView>
     );
   }
 
+  // If we get here, we presumably have a valid user + valid public profile
   return (
     <SafeAreaView style={theme.container}>
       {/* Profile Header */}
       <ProfileHeader
-        displayName={profileData?.displayName}
-        imageUrl={profileData?.imageUrl}
+        displayName={profileData?.displayName || 'Unnamed User'}
+        imageUrl={profileData?.imageUrl || ''}
         onEditProfile={() => setEditProfileModalVisible(true)}
         onSubmitTest={() => setSubmitTestModalVisible(true)}
         onLogout={handleLogout}
       />
 
-      {/* Health Status Area */}
+      {/* Show their health status info */}
       <View
         style={{
           paddingLeft: 20,
@@ -212,11 +230,17 @@ export default function HomeScreen() {
       {/* Edit Profile Modal */}
       <EditProfileModal
         visible={editProfileModalVisible}
-        initialDisplayName={profileData?.displayName}
-        initialPhotoUri={profileData?.imageUrl}
-        onPickImage={() => {}}
-        onTakePhoto={() => {}}
-        onRemovePhoto={() => {}}
+        initialDisplayName={profileData?.displayName || ''}
+        initialPhotoUri={profileData?.imageUrl || ''}
+        onPickImage={() => {
+          // optional: implement pick logic or pass down
+        }}
+        onTakePhoto={() => {
+          // optional: implement camera logic
+        }}
+        onRemovePhoto={() => {
+          // optional: implement remove logic
+        }}
         onCancel={() => setEditProfileModalVisible(false)}
         onSave={handleUpdateProfile}
       />
@@ -230,7 +254,7 @@ export default function HomeScreen() {
         <SubmitTestResults
           onClose={() => {
             setSubmitTestModalVisible(false);
-            refreshHealthStatuses();
+            refreshHealthStatuses(); // refresh once they submit new results
           }}
         />
       </ThemedModal>

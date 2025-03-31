@@ -10,7 +10,7 @@ export default function SignupScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const { signUp, logout } = useAuth();
+  const { signUp } = useAuth();
   const router = useRouter();
 
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
@@ -31,17 +31,11 @@ export default function SignupScreen() {
       await signUp(email, password);
       Alert.alert(
         'Verification Email Sent',
-        'A verification email has been sent to your email address. Please verify your email before logging in.',
-        [
-          {
-            text: 'OK',
-            onPress: async () => {
-              await logout();
-              router.replace('/Login');
-            },
-          },
-        ]
+        'A verification email has been sent to your email address. Please verify your email before continuing.'
       );
+      // We do NOT log them out here. They remain logged in.
+      // You can choose to route them somewhere or do nothing:
+      router.replace('/Login'); // Or route them to /Login, or do nothing
     } catch (error: any) {
       Alert.alert('Sign Up Error', error.message);
     }
