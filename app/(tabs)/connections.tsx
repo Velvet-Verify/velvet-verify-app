@@ -1,4 +1,5 @@
 // app/(tabs)/connections.tsx
+
 import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
@@ -7,6 +8,7 @@ import {
   Platform,
   TouchableOpacity,
   RefreshControl,
+  StyleSheet,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useConnections } from "@/src/context/ConnectionsContext";
@@ -42,6 +44,7 @@ interface DisplayConnection extends Connection {
   pendingSenderSUUID?: string;
   pendingRecipientSUUID?: string;
   pendingLevelName?: string;
+  pendingLevelId?: number; // optionally store numeric ID
 }
 
 export default function ConnectionsScreen() {
@@ -75,21 +78,25 @@ export default function ConnectionsScreen() {
     fetchMySUUID();
   }, [user]);
 
-  // 2) Build final array, skipping a second display for the pending doc if an active doc also exists
+  /**
+   * Build a single array of “display connections” from the raw `connections`.
+   * - If there's both an active doc & a pending doc for the same pair, we merge them into the active item 
+   *   by adding e.g. pendingDocId, pendingLevelName, etc.
+   * - If there's only an active doc or only a pending doc, we keep it as-is.
+   */
   const displayConnections = useMemo<DisplayConnection[]>(() => {
     function getPairKey(c: Connection) {
       const pair = [c.senderSUUID, c.recipientSUUID].sort();
       return pair.join("_");
     }
 
+    // We'll store each pair's active doc + pending doc
     const pairMap = new Map<string, { active?: Connection; pending?: Connection }>();
 
-    for (const c of connections) {
-      // Skip docs with status=2 (rejected), 5 (cancelled), etc. 
-      // We only want to show active(1) or pending(0).
-      if (![0, 1].includes(c.connectionStatus)) {
-        continue;
-      }
+    // Filter out canceled, rejected, etc. Keep only pending(0) or active(1).
+    const relevant = connections.filter(c => [0, 1].includes(c.connectionStatus));
+
+    for (const c of relevant) {
       const key = getPairKey(c);
       if (!pairMap.has(key)) {
         pairMap.set(key, {});
@@ -99,18 +106,18 @@ export default function ConnectionsScreen() {
       if (c.connectionStatus === 1) {
         pairData.active = c;
       } else {
+        // c.connectionStatus === 0
         pairData.pending = c;
       }
     }
 
+    // Now combine them
     const result: DisplayConnection[] = [];
-
-    for (const [key, { active, pending }] of pairMap.entries()) {
+    for (const [_, { active, pending }] of pairMap.entries()) {
       if (active && pending) {
-        // Both an active doc & a pending doc
+        // Merge the pending doc’s details into the active doc
         const lvl = connectionLevels[String(pending.connectionLevel)];
         const pendingLevelName = lvl?.name ?? `Level ${pending.connectionLevel}`;
-
         const mergedActive: DisplayConnection = {
           ...active,
           pendingDocId: pending.connectionDocId,
@@ -120,30 +127,73 @@ export default function ConnectionsScreen() {
           pendingLevelId: pending.connectionLevel,
         };
         result.push(mergedActive);
-
       } else if (active) {
         result.push(active);
       } else if (pending) {
+        // No active doc => purely pending doc
         result.push(pending);
       }
     }
-
     return result;
   }, [connections, connectionLevels]);
 
+  /**
+   * Next, group them by their “effective” category:
+   * 1) Bonded Partners => active L4
+   * 2) Friends => active L3
+   * 3) New => active L2
+   * 4) Pending => connectionStatus=0, connectionLevel=2 (only doc)
+   */
+  const { bonded, friends, newOnes, pending } = useMemo(() => {
+    const bonded: DisplayConnection[] = [];
+    const friends: DisplayConnection[] = [];
+    const newOnes: DisplayConnection[] = [];
+    const pending: DisplayConnection[] = [];
+
+    displayConnections.forEach((c) => {
+      if (c.connectionStatus === 1) {
+        // Active doc => put in L4=Bonded, L3=Friend, or L2=New
+        switch (c.connectionLevel) {
+          case 4:
+            bonded.push(c);
+            break;
+          case 3:
+            friends.push(c);
+            break;
+          case 2:
+            newOnes.push(c);
+            break;
+          default:
+            // ignore or handle other levels if you have them
+            break;
+        }
+      } else if (c.connectionStatus === 0) {
+        // This means there's no active doc overshadowing it,
+        // so we put it in “Pending” only if c.connectionLevel=2
+        if (c.connectionLevel === 2) {
+          pending.push(c);
+        } 
+        // If c.connectionLevel=3 or 4 with status=0, that would typically 
+        // be a “pending elevation,” but it’d be merged into the active doc above,
+        // so we usually wouldn’t see it as a separate item here.
+      }
+    });
+
+    return { bonded, friends, newOnes, pending };
+  }, [displayConnections]);
+
   const isIOS = Platform.OS === "ios";
   const bottomPadding = isIOS ? insets.bottom + 60 : 15;
-  const containerStyle =
-    displayConnections.length === 0
-      ? [theme.centerContainer, { paddingBottom: bottomPadding }]
-      : [theme.container, { paddingBottom: bottomPadding }];
+
+  // Container style
+  const containerStyle = [theme.container, { paddingBottom: bottomPadding }];
 
   function handlePressConnection(connection: DisplayConnection) {
     setSelectedConnection(connection);
     setDetailsModalVisible(true);
   }
 
-  // If still loading, show a quick spinner screen
+  // If still loading, show spinner
   if (loading) {
     return (
       <View style={[theme.centerContainer]}>
@@ -152,21 +202,34 @@ export default function ConnectionsScreen() {
     );
   }
 
-  return (
-    <View style={containerStyle}>
-      <Text style={theme.title}>Your Connections</Text>
-
-      <FlatList
-        data={displayConnections}
-        keyExtractor={(item) => item.connectionDocId || Math.random().toString()}
-        renderItem={({ item }) => (
+  // Helper to render each group’s list:
+  function renderGroup(title: string, data: DisplayConnection[]) {
+    if (!data || data.length === 0) return null;
+    return (
+      <View style={{ marginBottom: 20 }}>
+        <Text style={styles.groupTitle}>{title}</Text>
+        {data.map((item) => (
           <TouchableOpacity
+            key={item.connectionDocId || Math.random().toString()}
             activeOpacity={0.7}
             onPress={() => handlePressConnection(item)}
           >
             <ConnectionItem connection={item} />
           </TouchableOpacity>
-        )}
+        ))}
+      </View>
+    );
+  }
+
+  return (
+    <View style={containerStyle}>
+      <Text style={theme.title}>Your Connections</Text>
+
+      {/* Pull-to-refresh or manual refresh */}
+      <FlatList
+        data={[]} 
+        keyExtractor={() => Math.random().toString()}
+        renderItem={() => null}
         refreshControl={
           <RefreshControl
             refreshing={loading}
@@ -175,8 +238,22 @@ export default function ConnectionsScreen() {
           />
         }
         ListEmptyComponent={
-          <View style={{ alignItems: 'center', marginVertical: 20 }}>
-            <Text style={theme.bodyText}>No connections found.</Text>
+          <View style={{ paddingBottom: bottomPadding }}>
+            {/* BOND: L4 */}
+            {renderGroup("Bonded Partners", bonded)}
+            {/* FRIEND: L3 */}
+            {renderGroup("Friends", friends)}
+            {/* NEW: L2 */}
+            {renderGroup("New Connections", newOnes)}
+            {/* PENDING: status=0, level=2 */}
+            {renderGroup("Pending Requests", pending)}
+
+            {/* If all are empty, show text */}
+            {bonded.length === 0 && friends.length === 0 && newOnes.length === 0 && pending.length === 0 && (
+              <View style={{ alignItems: 'center', marginTop: 20 }}>
+                <Text style={theme.bodyText}>No connections found.</Text>
+              </View>
+            )}
           </View>
         }
       />
@@ -187,11 +264,13 @@ export default function ConnectionsScreen() {
         onPress={() => setNewConnectionModalVisible(true)}
       />
 
+      {/* NewConnection modal */}
       <NewConnection
         visible={newConnectionModalVisible}
         onClose={() => setNewConnectionModalVisible(false)}
       />
 
+      {/* Connection details */}
       {selectedConnection && (
         <ConnectionDetailsModal
           visible={detailsModalVisible}
@@ -209,3 +288,11 @@ export default function ConnectionsScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  groupTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginVertical: 8,
+  },
+});

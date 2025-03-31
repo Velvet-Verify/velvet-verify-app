@@ -2,20 +2,20 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
-import { useLookups } from '@/src/context/LookupContext';
 
 export interface Connection {
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;
   expiresAt: string | null;
-  connectionLevel: number;       
-  connectionStatus: number;      
+  connectionLevel: number;
+  connectionStatus: number;
   senderSUUID: string;
   recipientSUUID: string;
-  // Possibly references to the hidden pending doc
+  // Possibly references to a pending doc
   pendingDocId?: string;
   pendingSenderSUUID?: string;
+  pendingRecipientSUUID?: string;
   pendingLevelName?: string;
 }
 
@@ -23,38 +23,44 @@ interface ConnectionItemProps {
   connection: Connection;
 }
 
+/**
+ * Renders a connection item:
+ * - Avatar + display name
+ * - If there's a pendingLevelName, we show "Request Pending: <pendingLevelName>"
+ */
 export function ConnectionItem({ connection }: ConnectionItemProps) {
   const theme = useTheme();
-  const { connectionLevels } = useLookups();
 
   const displayName = connection.displayName || 'Unknown';
 
-  // For the doc's own level
-  const lvlObj = connectionLevels[String(connection.connectionLevel)];
-  const activeLevelName = lvlObj?.name ?? `Level ${connection.connectionLevel}`;
-
-  let finalLevelText = activeLevelName;
-  // If there's a hidden pending doc attached to it
-  if (connection.pendingLevelName) {
-    finalLevelText += ` (${connection.pendingLevelName} Request Pending)`;
-  }
+  // If there's a hidden pending doc attached to it:
+  // e.g. "Request Pending: Friend"
+  const pendingText = connection.pendingLevelName
+    ? `Request Pending: ${connection.pendingLevelName}`
+    : null;
 
   return (
     <View style={styles.container}>
+      {/* Avatar */}
       {connection.imageUrl ? (
         <Image source={{ uri: connection.imageUrl }} style={styles.avatar} />
       ) : (
         <View style={styles.placeholderAvatar} />
       )}
 
+      {/* Texts */}
       <View style={styles.infoContainer}>
+        {/* Display Name */}
         <Text style={[theme.bodyText, styles.topLine]}>
-          {displayName} (L{connection.connectionLevel}S{connection.connectionStatus})
+          {displayName}
         </Text>
 
-        <Text style={[theme.bodyText, styles.expLine]}>
-          {finalLevelText}
-        </Text>
+        {/* If there's a pending request, display a second line */}
+        {pendingText && (
+          <Text style={[theme.bodyText, styles.pendingText]}>
+            {pendingText}
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -86,8 +92,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 2,
   },
-  expLine: {
+  pendingText: {
     fontSize: 14,
     opacity: 0.8,
+    marginTop: 2,
   },
 });
