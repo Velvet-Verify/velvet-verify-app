@@ -38,7 +38,8 @@ export const updateConnectionLevel = onCall(callableOptions, async (
 
   const {docId, currentLevel, newLevel} = request.data;
   if (!docId || !currentLevel || !newLevel) {
-    throw new HttpsError("invalid-argument",
+    throw new HttpsError(
+      "invalid-argument",
       "Missing docId, currentLevel, or newLevel."
     );
   }
@@ -65,58 +66,63 @@ export const updateConnectionLevel = onCall(callableOptions, async (
   const oldSender = oldData.senderSUUID;
   const oldRecipient = oldData.recipientSUUID;
 
-  // Figure out the 'other' user
-  let otherSUUID: string;
-  if (callerSUUID === oldSender) {
-    // Caller was the old sender
-    otherSUUID = oldRecipient;
-  } else if (callerSUUID === oldRecipient) {
-    // Caller was the old recipient
-    otherSUUID = oldSender;
-  } else {
+  // Verify the caller is a participant
+  if (callerSUUID !== oldSender && callerSUUID !== oldRecipient) {
     throw new HttpsError(
       "permission-denied",
       "Caller is not a participant in this connection."
     );
   }
 
-  if (currentLevel > newLevel) {
-    // De-escalation logic: mark old doc as deactivated
-    await connRef.update({connectionStatus: 4});
+  const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // Check if we already have a doc with (callerSUUID,
-    // otherSUUID, newLevel) & status=1
+  if (currentLevel > newLevel) {
+    // De-escalation logic: mark old doc as deactivated (status=4),
+    // set updatedAt
+    await connRef.update({
+      connectionStatus: 4,
+      updatedAt: now,
+    });
+
+    // Then see if we already have a doc for the new level, status=1
     const checkQuery = await db.collection("connections")
       .where("senderSUUID", "==", callerSUUID)
-      .where("recipientSUUID", "==", otherSUUID)
+      .where(
+        "recipientSUUID", "==",
+        oldSender === callerSUUID ? oldRecipient : oldSender
+      )
       .where("connectionLevel", "==", newLevel)
       .where("connectionStatus", "==", 1) // active
       .limit(1)
       .get();
+
     if (!checkQuery.empty) {
-      // A doc already exists for that new level => skip creating another
+      // A doc already exists => skip creating another
       console.log("De-escalation doc already exists, skipping creation.");
       return {success: true};
     }
 
     // Otherwise create a new doc with status=1
+    // set createdAt & updatedAt
     await db.collection("connections").add({
       senderSUUID: callerSUUID,
-      recipientSUUID: otherSUUID,
+      recipientSUUID: oldSender === callerSUUID ? oldRecipient : oldSender,
       connectionLevel: newLevel,
       connectionStatus: 1,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: now,
+      updatedAt: now,
+      // If we consider it "active" upon creation => set connectedAt too
+      connectedAt: now,
     });
   } else {
-    // ELEVATION logic: do NOT touch the existing doc
-    // Instead create a new doc with status=0 (pending)
-    // But only if one doesn't exist already for this pair+level.
+    // Elevation logic: do NOT touch the existing doc
+    // Instead create a new doc with status=0 (pending) if none exists
+    const otherSUUID = oldSender === callerSUUID ? oldRecipient : oldSender;
+
     const checkQuery = await db.collection("connections")
       .where("connectionLevel", "==", newLevel)
-      .where("connectionStatus", "==", 0)
-      // We only want one doc for that new level,
-      // ignoring direction or concurrency
-      // so we check both possible directions:
+      .where("connectionStatus", "==", 0) // pending
+      // We only want one doc for that new level, ignoring direction
       .where("senderSUUID", "in", [callerSUUID, otherSUUID])
       .where("recipientSUUID", "in", [callerSUUID, otherSUUID])
       .limit(1)
@@ -129,13 +135,16 @@ export const updateConnectionLevel = onCall(callableOptions, async (
       return {success: true};
     }
 
-    // Otherwise create a new doc with the caller as sender
+    // Otherwise create a new doc with the caller as sender,
+    // status=0, set createdAt & updatedAt
     await db.collection("connections").add({
       senderSUUID: callerSUUID,
       recipientSUUID: otherSUUID,
       connectionLevel: newLevel,
       connectionStatus: 0,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: now,
+      updatedAt: now,
+      // connectedAt => not set until status=1
     });
   }
 

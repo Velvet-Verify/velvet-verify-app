@@ -23,6 +23,7 @@ interface Connection {
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;
+  updatedAt: string | null;
   expiresAt: string | null;
   connectionLevel: number;
   connectionStatus: number;
@@ -128,6 +129,9 @@ export const getConnections = onCall(
           null,
         expiresAt: data.expiresAt ?
           data.expiresAt.toDate().toISOString() :
+          null,
+        updatedAt: data.updatedAt ?
+          data.updatedAt.toDate().toISOString() :
           null,
         connectionLevel: data.connectionLevel,
         connectionStatus: data.connectionStatus,

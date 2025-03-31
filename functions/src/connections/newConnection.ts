@@ -1,4 +1,5 @@
 // functions/src/newConnection.ts
+
 import {
   onCall,
   type CallableRequest,
@@ -95,7 +96,7 @@ export const newConnection = onCall(callableOptions, async (
   const existingQuery = await connectionsRef
     .where("senderSUUID", "in", [senderSUUID, recipientSUUID])
     .where("recipientSUUID", "in", [senderSUUID, recipientSUUID])
-    .where("connectionStatus", "<", 2)
+    .where("connectionStatus", "<", 2) // 0=pending,1=active
     .get();
 
   if (!existingQuery.empty) {
@@ -103,14 +104,17 @@ export const newConnection = onCall(callableOptions, async (
     return {message: "An active or pending connection already exists."};
   }
 
-  // Create a new connection record.
+  // Create a new connection record: pending, level=2, with timestamps
+  const now = admin.firestore.FieldValue.serverTimestamp();
   const connectionDoc = {
     senderSUUID,
     recipientSUUID,
-    connectionStatus: 0, // Pending status
+    connectionStatus: 0, // Pending
     connectionLevel: 2, // e.g. singular
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: now,
+    updatedAt: now, // same as createdAt initially
     expiresAt: admin.firestore.Timestamp.fromDate(expDate),
+    // connectedAt => not set until status=1
   };
   console.log("Creating connection document:", connectionDoc);
   await connectionsRef.add(connectionDoc);

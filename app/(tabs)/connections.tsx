@@ -214,7 +214,7 @@ export default function ConnectionsScreen() {
             activeOpacity={0.7}
             onPress={() => handlePressConnection(item)}
           >
-            <ConnectionItem connection={item} />
+            <ConnectionItem connection={item} mySUUID={mySUUID} />
           </TouchableOpacity>
         ))}
       </View>
