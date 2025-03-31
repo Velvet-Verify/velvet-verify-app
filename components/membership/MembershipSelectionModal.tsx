@@ -2,23 +2,33 @@
 import React, { useState } from 'react';
 import { View, Text, Alert, StyleSheet } from 'react-native';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { getFirestore, collection, addDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc } from 'firebase/firestore';
 import { firebaseApp } from '@/src/firebase/config';
 import { useAuth } from '@/src/context/AuthContext';
 import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
 import { ThemedButton } from '@/components/ui/ThemedButton';
+import { useMembership } from '@/src/context/MembershipContext';
 
 interface MembershipSelectionModalProps {
   visible: boolean;
   onClose: () => void;
+  /**
+   * Optional callback invoked after a user successfully creates premium membership.
+   */
+  onUpgraded?: () => void;
 }
 
-export function MembershipSelectionModal({ visible, onClose }: MembershipSelectionModalProps) {
+export function MembershipSelectionModal({
+  visible,
+  onClose,
+  onUpgraded,
+}: MembershipSelectionModalProps) {
   const theme = useTheme();
   const { user } = useAuth();
+  const { refreshMembership } = useMembership();
 
-  // Default to "premium"
+  // Default to "premium" selected
   const [selection, setSelection] = useState<'free' | 'premium'>('premium');
 
   const functionsInstance = getFunctions(firebaseApp);
@@ -27,40 +37,47 @@ export function MembershipSelectionModal({ visible, onClose }: MembershipSelecti
 
   /**
    * Called if the user taps "Yes" in the premium confirm alert. 
-   * Creates a membership doc in Firestore with 
-   *   muuid, startDate, endDate, type = 'premium'.
+   * We create (or overwrite) the doc in `memberships/{muuid}` with type='premium'.
    */
   async function createPremiumMembership() {
-    if (!user) throw new Error('No user found for membership');
+    if (!user) {
+      throw new Error('No user found for membership');
+    }
 
-    // 1) Compute membership UUID
+    // 1) Compute the membership hash => muuid
     const muuidResult = await computeHashedIdCF({ hashType: 'membership' });
     const muuid = muuidResult.data.hashedId as string;
 
-    // 2) Build start/end
+    // 2) Build start/end dates
     const startDate = new Date();
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1); // e.g. +1 month
 
-    // 3) Create doc in 'memberships'
-    await addDoc(collection(db, 'memberships'), {
+    // 3) Write doc in 'memberships' collection, doc ID = muuid
+    // Using setDoc so it overwrites or creates exactly one doc
+    await setDoc(doc(db, 'memberships', muuid), {
       muuid,
-      userUid: user.uid,
-      type: 'premium',      // or 'membershipType' if you prefer
+      type: 'premium',
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
+      createdAt: new Date().toISOString(),
     });
+
+    // 4) Refresh membership context => membership.premium = true
+    await refreshMembership();
+
+    // 5) Let parent know if needed
+    onUpgraded?.();
   }
 
   /**
-   * The single "Confirm" button inside the modal calls this.
-   * We show an Alert with "Yes" | "Cancel" based on the selected tier.
+   * Single confirm button => show an Alert for "premium" or "free"
    */
   function handleConfirm() {
     if (selection === 'premium') {
       Alert.alert(
         'Confirm Premium',
-        'Your membership will be automatically renewed at $4.99/mo. Continue?',
+        'Your membership will be auto-renewed at $4.99/mo. Continue?',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -86,7 +103,7 @@ export function MembershipSelectionModal({ visible, onClose }: MembershipSelecti
           {
             text: 'Yes',
             onPress: () => {
-              // No membership doc created for Free
+              // No membership doc => remain free
               onClose();
             },
           },
@@ -95,10 +112,7 @@ export function MembershipSelectionModal({ visible, onClose }: MembershipSelecti
     }
   }
 
-  /**
-   * Render the bullet list. If selection === 'free', 
-   * we apply strikethrough to all but the first item.
-   */
+  // Some bullet benefits
   const benefits = [
     {
       id: 1,
@@ -112,12 +126,12 @@ export function MembershipSelectionModal({ visible, onClose }: MembershipSelecti
     },
     {
       id: 3,
-      text: 'Unlock elevated connection benefits with specific partners:\n   • Continuous alerts with friends\n   • Shared testing schedules with bonded partners',
+      text: 'Unlock elevated connection benefits:\n   • Continuous alerts (friends)\n   • Shared testing schedules (bonded)',
       premiumOnly: true,
     },
     {
       id: 4,
-      text: 'Discounted benefits for premium, bonded partners',
+      text: 'Discounted benefits for premium bonded partners',
       premiumOnly: true,
     },
   ];
@@ -125,7 +139,6 @@ export function MembershipSelectionModal({ visible, onClose }: MembershipSelecti
   return (
     <ThemedModal visible={visible} onRequestClose={onClose} useBlur>
       <View style={{ padding: 20 }}>
-        {/* Title */}
         <Text style={[theme.modalTitle, { marginBottom: 16 }]}>
           Choose Your Membership
         </Text>
@@ -150,7 +163,6 @@ export function MembershipSelectionModal({ visible, onClose }: MembershipSelecti
         <View style={{ marginTop: 20 }}>
           {benefits.map((item) => {
             const isStruck = item.premiumOnly && selection === 'free';
-            // For the text style, we combine your theme plus local styles
             const textStyle = [
               theme.bodyText,
               styles.bulletText,
@@ -165,7 +177,7 @@ export function MembershipSelectionModal({ visible, onClose }: MembershipSelecti
         </View>
 
         {/* Single confirm button */}
-        <View style={[{ marginTop: 24 }]}>
+        <View style={{ marginTop: 24 }}>
           <ThemedButton title="Confirm" variant="primary" onPress={handleConfirm} />
         </View>
       </View>

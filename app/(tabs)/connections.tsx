@@ -37,7 +37,7 @@ export interface Connection {
 
 /** 
  * For merging, we store info about a second doc:
- * pendingDocId, pendingSenderSUUID, pendingRecipientSUUID, pendingLevelName
+ * pendingDocId, pendingSenderSUUID, pendingRecipientSUUID, pendingLevelName, ...
  */
 interface DisplayConnection extends Connection {
   pendingDocId?: string;
@@ -58,6 +58,12 @@ export default function ConnectionsScreen() {
   const [selectedConnection, setSelectedConnection] = useState<DisplayConnection | null>(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [mySUUID, setMySUUID] = useState<string>("");
+
+  // Collapsible state for each group
+  const [bondedOpen, setBondedOpen] = useState(true);
+  const [friendsOpen, setFriendsOpen] = useState(true);
+  const [newOpen, setNewOpen] = useState(true);
+  const [pendingOpen, setPendingOpen] = useState(true);
 
   const functionsInstance = getFunctions(firebaseApp);
   const computeHashedIdCF = httpsCallable(functionsInstance, "computeHashedId");
@@ -80,9 +86,7 @@ export default function ConnectionsScreen() {
 
   /**
    * Build a single array of “display connections” from the raw `connections`.
-   * - If there's both an active doc & a pending doc for the same pair, we merge them into the active item 
-   *   by adding e.g. pendingDocId, pendingLevelName, etc.
-   * - If there's only an active doc or only a pending doc, we keep it as-is.
+   * - If there's both an active doc & a pending doc for the same pair, we merge them
    */
   const displayConnections = useMemo<DisplayConnection[]>(() => {
     function getPairKey(c: Connection) {
@@ -90,7 +94,6 @@ export default function ConnectionsScreen() {
       return pair.join("_");
     }
 
-    // We'll store each pair's active doc + pending doc
     const pairMap = new Map<string, { active?: Connection; pending?: Connection }>();
 
     // Filter out canceled, rejected, etc. Keep only pending(0) or active(1).
@@ -106,16 +109,14 @@ export default function ConnectionsScreen() {
       if (c.connectionStatus === 1) {
         pairData.active = c;
       } else {
-        // c.connectionStatus === 0
         pairData.pending = c;
       }
     }
 
-    // Now combine them
     const result: DisplayConnection[] = [];
     for (const [_, { active, pending }] of pairMap.entries()) {
       if (active && pending) {
-        // Merge the pending doc’s details into the active doc
+        // Merge the pending doc’s fields into the active doc
         const lvl = connectionLevels[String(pending.connectionLevel)];
         const pendingLevelName = lvl?.name ?? `Level ${pending.connectionLevel}`;
         const mergedActive: DisplayConnection = {
@@ -130,7 +131,7 @@ export default function ConnectionsScreen() {
       } else if (active) {
         result.push(active);
       } else if (pending) {
-        // No active doc => purely pending doc
+        // purely pending doc
         result.push(pending);
       }
     }
@@ -138,11 +139,11 @@ export default function ConnectionsScreen() {
   }, [connections, connectionLevels]);
 
   /**
-   * Next, group them by their “effective” category:
-   * 1) Bonded Partners => active L4
-   * 2) Friends => active L3
-   * 3) New => active L2
-   * 4) Pending => connectionStatus=0, connectionLevel=2 (only doc)
+   * Next, group them by category:
+   *  - Bonded => active L4
+   *  - Friends => active L3
+   *  - New => active L2
+   *  - Pending => purely pending doc with L2
    */
   const { bonded, friends, newOnes, pending } = useMemo(() => {
     const bonded: DisplayConnection[] = [];
@@ -150,9 +151,8 @@ export default function ConnectionsScreen() {
     const newOnes: DisplayConnection[] = [];
     const pending: DisplayConnection[] = [];
 
-    displayConnections.forEach((c) => {
+    displayConnections.forEach(c => {
       if (c.connectionStatus === 1) {
-        // Active doc => put in L4=Bonded, L3=Friend, or L2=New
         switch (c.connectionLevel) {
           case 4:
             bonded.push(c);
@@ -163,19 +163,10 @@ export default function ConnectionsScreen() {
           case 2:
             newOnes.push(c);
             break;
-          default:
-            // ignore or handle other levels if you have them
-            break;
+          // handle other levels if needed
         }
-      } else if (c.connectionStatus === 0) {
-        // This means there's no active doc overshadowing it,
-        // so we put it in “Pending” only if c.connectionLevel=2
-        if (c.connectionLevel === 2) {
-          pending.push(c);
-        } 
-        // If c.connectionLevel=3 or 4 with status=0, that would typically 
-        // be a “pending elevation,” but it’d be merged into the active doc above,
-        // so we usually wouldn’t see it as a separate item here.
+      } else if (c.connectionStatus === 0 && c.connectionLevel === 2) {
+        pending.push(c);
       }
     });
 
@@ -184,8 +175,6 @@ export default function ConnectionsScreen() {
 
   const isIOS = Platform.OS === "ios";
   const bottomPadding = isIOS ? insets.bottom + 60 : 15;
-
-  // Container style
   const containerStyle = [theme.container, { paddingBottom: bottomPadding }];
 
   function handlePressConnection(connection: DisplayConnection) {
@@ -202,21 +191,48 @@ export default function ConnectionsScreen() {
     );
   }
 
-  // Helper to render each group’s list:
-  function renderGroup(title: string, data: DisplayConnection[]) {
+  /**
+   * Renders each group in a collapsible container:
+   * - Tapping the header toggles open/closed
+   * - If open => show the items, if closed => items hidden
+   */
+  function renderCollapsibleGroup(
+    title: string,
+    data: DisplayConnection[],
+    isOpen: boolean,
+    setIsOpen: (b: boolean) => void
+  ) {
     if (!data || data.length === 0) return null;
+
+    const icon = isOpen ? '▼' : '►';
+
     return (
-      <View style={{ marginBottom: 20 }}>
-        <Text style={styles.groupTitle}>{title}</Text>
-        {data.map((item) => (
-          <TouchableOpacity
-            key={item.connectionDocId || Math.random().toString()}
-            activeOpacity={0.7}
-            onPress={() => handlePressConnection(item)}
-          >
-            <ConnectionItem connection={item} mySUUID={mySUUID} />
-          </TouchableOpacity>
-        ))}
+      <View style={{ marginBottom: 10 }}>
+        {/* Header row */}
+        <TouchableOpacity
+          onPress={() => setIsOpen(!isOpen)}
+          style={styles.collapsibleHeader}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.groupTitle}>
+            {icon} {title}
+          </Text>
+        </TouchableOpacity>
+
+        {/* The list only if open */}
+        {isOpen && (
+          <View style={{ paddingLeft: 10, marginTop: 5 }}>
+            {data.map(item => (
+              <TouchableOpacity
+                key={item.connectionDocId || Math.random().toString()}
+                activeOpacity={0.7}
+                onPress={() => handlePressConnection(item)}
+              >
+                <ConnectionItem connection={item} mySUUID={mySUUID} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
     );
   }
@@ -225,7 +241,11 @@ export default function ConnectionsScreen() {
     <View style={containerStyle}>
       <Text style={theme.title}>Your Connections</Text>
 
-      {/* Pull-to-refresh or manual refresh */}
+      {/* 
+        We still use a FlatList with empty data, 
+        purely for the pull-to-refresh logic. 
+        Then in ListEmptyComponent, we render collapsible groups. 
+      */}
       <FlatList
         data={[]} 
         keyExtractor={() => Math.random().toString()}
@@ -239,17 +259,16 @@ export default function ConnectionsScreen() {
         }
         ListEmptyComponent={
           <View style={{ paddingBottom: bottomPadding }}>
-            {/* BOND: L4 */}
-            {renderGroup("Bonded Partners", bonded)}
-            {/* FRIEND: L3 */}
-            {renderGroup("Friends", friends)}
-            {/* NEW: L2 */}
-            {renderGroup("New Connections", newOnes)}
-            {/* PENDING: status=0, level=2 */}
-            {renderGroup("Pending Requests", pending)}
+            {renderCollapsibleGroup("Bonded Partners", bonded, bondedOpen, setBondedOpen)}
+            {renderCollapsibleGroup("Friends", friends, friendsOpen, setFriendsOpen)}
+            {renderCollapsibleGroup("New Connections", newOnes, newOpen, setNewOpen)}
+            {renderCollapsibleGroup("Pending Requests", pending, pendingOpen, setPendingOpen)}
 
             {/* If all are empty, show text */}
-            {bonded.length === 0 && friends.length === 0 && newOnes.length === 0 && pending.length === 0 && (
+            {bonded.length === 0 &&
+             friends.length === 0 &&
+             newOnes.length === 0 &&
+             pending.length === 0 && (
               <View style={{ alignItems: 'center', marginTop: 20 }}>
                 <Text style={theme.bodyText}>No connections found.</Text>
               </View>
@@ -264,13 +283,11 @@ export default function ConnectionsScreen() {
         onPress={() => setNewConnectionModalVisible(true)}
       />
 
-      {/* NewConnection modal */}
       <NewConnection
         visible={newConnectionModalVisible}
         onClose={() => setNewConnectionModalVisible(false)}
       />
 
-      {/* Connection details */}
       {selectedConnection && (
         <ConnectionDetailsModal
           visible={detailsModalVisible}
@@ -279,7 +296,6 @@ export default function ConnectionsScreen() {
             setSelectedConnection(null);
           }}
           connection={selectedConnection}
-          // If the user is the base doc's recipient => isRecipient = true
           isRecipient={selectedConnection.recipientSUUID === mySUUID}
           mySUUID={mySUUID}
           stdis={stdis}
@@ -293,6 +309,10 @@ const styles = StyleSheet.create({
   groupTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginVertical: 8,
+  },
+  collapsibleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
   },
 });

@@ -82,6 +82,21 @@ export function ConnectionManagement({
   // We only show the "Request Exposure Alerts" button if:
   // - connectionStatus === 1 (active)
   // - connectionLevel === 2 (i.e. "New")
+
+  // Message for free users requesting alerts:
+
+  // Headline (optional):
+  // Limited Exposure Alerts Without Premium
+
+  //Body Text:
+  // “You can still receive anonymous alerts if someone tests positive and you might be at risk. 
+  // However, without a premium membership, you won’t see which specific STD triggered the alert. 
+  // For your safety, you’ll have to assume the longest testing window (e.g. 90 days) for all possible STDs.
+  // With a premium membership, alerts show exactly which STD is involved, 
+  // and the testing window is tailored to that infection—so you only test for what’s necessary, 
+  // and often for a shorter period.
+  // Would you like to continue with limited alerts or upgrade to premium for 
+  // full STD‑specific alerts and shorter testing windows?”
   const shouldShowExposureButton =
     connection.connectionStatus === 1 &&
     connection.connectionLevel === 2;

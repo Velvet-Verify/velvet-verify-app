@@ -6,12 +6,15 @@ import { ThemeProvider } from 'styled-components/native';
 import Themes from '@/constants/Themes';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
 import { LookupProvider } from '@/src/context/LookupContext';
+import { MembershipProvider } from '@/src/context/MembershipContext';
 
 export default function RootLayout() {
   return (
     <AuthProvider>
       <LookupProvider>
-        <InnerLayout />
+        <MembershipProvider>
+          <InnerLayout />
+        </MembershipProvider>
       </LookupProvider>
     </AuthProvider>
   );
