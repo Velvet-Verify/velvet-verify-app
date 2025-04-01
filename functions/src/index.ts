@@ -5,3 +5,4 @@ export {computeHashedId};
 export * from "./connections";
 export * from "./publicProfile";
 export * from "./health";
+export * from "./exposure/requestExposureAlerts";

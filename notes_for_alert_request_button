@@ -1,0 +1,23 @@
+// Message for free users requesting alerts:
+
+  // Headline (optional):
+  // Limited Exposure Alerts Without Premium
+
+  //Body Text:
+  // “You can still receive anonymous alerts if someone tests positive and you might be at risk. 
+  // However, without a premium membership, you won’t see which specific STD triggered the alert. 
+  // For your safety, you’ll have to assume the longest testing window (e.g. 90 days) for all possible STDs.
+  // With a premium membership, alerts show exactly which STD is involved, 
+  // and the testing window is tailored to that infection—so you only test for what’s necessary, 
+  // and often for a shorter period.
+  // Would you like to continue with limited alerts or upgrade to premium for 
+  // full STD‑specific alerts and shorter testing windows?”
+
+  //   Buttons could be:
+  // 	•	Continue (accept the free, non-specific alerts)
+  // 	•	Upgrade to Premium (open your membership flow)
+
+  // That way the user understands:
+  // 	1.	They do still get alerts as a free user.
+  // 	2.	The difference is that they won’t know which STD triggered the alert (Chlamydia, gonorrhea, etc.) and must assume the maximum window.
+  // 	3.	Premium provides clarity on which STD, letting them test only for that one and possibly reduce the waiting period.

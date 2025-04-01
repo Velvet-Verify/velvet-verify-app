@@ -13,11 +13,9 @@ import { useLookups } from '@/src/context/LookupContext';
 interface ConnectionManagementProps {
   connection: Connection;
   isRecipient: boolean;
-  mySUUID?: string;    // The current user's SUUID
+  mySUUID?: string; // The current user's SUUID
   onChangeType?: () => void;
   onDisconnect?: () => void;
-  /** Renamed callback if you want, or keep onStartFling if you prefer: */
-  onRequestExposure?: () => void;
 }
 
 export function ConnectionManagement({
@@ -26,7 +24,6 @@ export function ConnectionManagement({
   mySUUID,
   onChangeType,
   onDisconnect,
-  onRequestExposure,
 }: ConnectionManagementProps) {
   const theme = useTheme();
   const { refreshConnections } = useConnections();
@@ -34,10 +31,12 @@ export function ConnectionManagement({
 
   const functionsInstance = getFunctions(firebaseApp);
   const updateConnectionStatusCF = httpsCallable(functionsInstance, 'updateConnectionStatus');
+  // Our new CF function for creating exposureAlerts
+  const requestExposureAlertsCF = httpsCallable(functionsInstance, 'requestExposureAlerts');
 
   // We'll show "Cancel X Request" if we do indeed have a pending doc (either purely or merged)
   // AND the current user is the pending doc's sender.
-  const hasMergedPending = !!connection.pendingDocId; 
+  const hasMergedPending = !!connection.pendingDocId;
 
   let isPendingSender = false;
   let docIdToCancel: string | undefined;
@@ -45,29 +44,26 @@ export function ConnectionManagement({
 
   if (hasMergedPending) {
     // The user is the pending doc's sender if connection.pendingSenderSUUID === mySUUID
-    isPendingSender = (connection.pendingSenderSUUID === mySUUID);
+    isPendingSender = connection.pendingSenderSUUID === mySUUID;
     docIdToCancel = connection.pendingDocId;
     pendingLevelName = connection.pendingLevelName;
   } else if (connection.connectionStatus === 0) {
     // purely pending doc
     // The user is the sender if connection.senderSUUID === mySUUID
-    isPendingSender = (connection.senderSUUID === mySUUID);
+    isPendingSender = connection.senderSUUID === mySUUID;
     docIdToCancel = connection.connectionDocId;
     // We'll fetch the doc's level name from lookups:
     const lvlObj = connectionLevels[String(connection.connectionLevel)];
     pendingLevelName = lvlObj?.name ?? `Level ${connection.connectionLevel}`;
   }
 
-  const showCancel = (!!docIdToCancel) && isPendingSender;
+  const showCancel = !!docIdToCancel && isPendingSender;
 
   async function handleCancelRequest() {
     if (!docIdToCancel) return;
     try {
       await updateConnectionStatusCF({ docId: docIdToCancel, newStatus: 5 });
-      Alert.alert(
-        'Cancelled',
-        `${pendingLevelName || 'Connection'} request was cancelled.`
-      );
+      Alert.alert('Cancelled', `${pendingLevelName || 'Connection'} request was cancelled.`);
       refreshConnections();
     } catch (err: any) {
       console.error('Error cancelling request:', err);
@@ -79,36 +75,26 @@ export function ConnectionManagement({
   const lvl = connectionLevels[String(connection.connectionLevel)];
   const activeLevelName = lvl?.name ?? `Level ${connection.connectionLevel}`;
 
-  // We only show the "Request Exposure Alerts" button if:
+  // We only show "Request Exposure Alerts" if:
   // - connectionStatus === 1 (active)
   // - connectionLevel === 2 (i.e. "New")
-
-  // Message for free users requesting alerts:
-
-  // Headline (optional):
-  // Limited Exposure Alerts Without Premium
-
-  //Body Text:
-  // “You can still receive anonymous alerts if someone tests positive and you might be at risk. 
-  // However, without a premium membership, you won’t see which specific STD triggered the alert. 
-  // For your safety, you’ll have to assume the longest testing window (e.g. 90 days) for all possible STDs.
-  // With a premium membership, alerts show exactly which STD is involved, 
-  // and the testing window is tailored to that infection—so you only test for what’s necessary, 
-  // and often for a shorter period.
-  // Would you like to continue with limited alerts or upgrade to premium for 
-  // full STD‑specific alerts and shorter testing windows?”
-
-  //   Buttons could be:
-  // 	•	Continue (accept the free, non-specific alerts)
-  // 	•	Upgrade to Premium (open your membership flow)
-
-  // That way the user understands:
-  // 	1.	They do still get alerts as a free user.
-  // 	2.	The difference is that they won’t know which STD triggered the alert (Chlamydia, gonorrhea, etc.) and must assume the maximum window.
-  // 	3.	Premium provides clarity on which STD, letting them test only for that one and possibly reduce the waiting period.
   const shouldShowExposureButton =
-    connection.connectionStatus === 1 &&
-    connection.connectionLevel === 2;
+    connection.connectionStatus === 1 && connection.connectionLevel === 2;
+
+  // Called when user taps "Request Exposure Alerts"
+  async function handleRequestExposure() {
+    try {
+      // Calls our new CF, passing the connection doc ID
+      await requestExposureAlertsCF({
+        connectionDocId: connection.connectionDocId,
+      });
+      Alert.alert('Success', 'Exposure alert requests created!');
+      // optionally refreshConnections() if you want to reflect any changes in UI
+    } catch (err: any) {
+      console.error('Error requesting exposure alerts:', err);
+      Alert.alert('Error', err.message || 'Failed to request alerts.');
+    }
+  }
 
   return (
     <View style={[theme.centerContainer, styles.container]}>
@@ -138,12 +124,12 @@ export function ConnectionManagement({
           style={styles.button}
         />
 
-        {/* Conditionally render the renamed button if level=2 & status=1 */}
+        {/* Conditionally render the button if level=2 & status=1 */}
         {shouldShowExposureButton && (
           <ThemedButton
             title="Request Exposure Alerts"
             variant="primary"
-            onPress={onRequestExposure}
+            onPress={handleRequestExposure}
             style={styles.button}
           />
         )}
@@ -152,6 +138,7 @@ export function ConnectionManagement({
   );
 }
 
+// Styles
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 20,
