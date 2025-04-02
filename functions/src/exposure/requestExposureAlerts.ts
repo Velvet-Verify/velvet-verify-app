@@ -15,88 +15,107 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 interface RequestExposureData {
-  connectionDocId: string; // The ID of the 'connections' doc
-  // If you want to pass other flags, e.g. free/premium, do so here
+  connectionDocId: string;
 }
 
-/**
- * This function:
- *  1) Validates the caller is a participant in the connection.
- *  2) Finds all STDI IDs in your 'STDI' collection.
- *  3) Creates one doc per STDI in 'exposureAlerts':
- *      - status=0 (Pending)
- *      - sender=the other participant
- *      - recipient=the caller
- *      - createdAt, updatedAt => serverTimestamp
- */
 const callableOptions: CallableOptions = {
   cors: "*",
   secrets: [STANDARD_HASH_KEY],
 };
 
+/**
+ * requestExposureAlerts
+ *  - Ensures the caller is in the connection
+ *  - Expires existing pending alerts (status=0)
+ *    between caller & other participant
+ *  - Creates new pending alerts (status=0) for each STDI doc
+ *
+ * The logged-in user (caller) => recipient
+ * The other participant => sender
+ */
 export const requestExposureAlerts = onCall(
-  callableOptions,
-  async (request: CallableRequest<RequestExposureData>) => {
+  callableOptions, async (
+    request: CallableRequest<RequestExposureData>
+  ) => {
+  // 1) Must be authenticated
     if (!request.auth) {
       throw new HttpsError(
         "unauthenticated",
-        "Must be called while authenticated."
+        "User must be authenticated."
       );
     }
 
     const {connectionDocId} = request.data;
     if (!connectionDocId) {
-      throw new HttpsError("invalid-argument", "Missing connectionDocId.");
+      throw new HttpsError(
+        "invalid-argument",
+        "Missing connectionDocId."
+      );
     }
 
+    // 2) Identify caller’s SUUID (the user requesting the alerts = recipient)
     const callerUid = request.auth.uid;
-    // We'll compute the caller's SUUID (standard hash)
-    const callerSUUID = await computeHash("standard", callerUid);
+    const callerSUUID = await computeHash(
+      "standard",
+      callerUid
+    );
 
-    // 1) Fetch the connection doc
+    // 3) Fetch the connection doc
     const connSnap = await db.collection(
       "connections"
     ).doc(connectionDocId).get();
     if (!connSnap.exists) {
-      throw new HttpsError("not-found", "Connection doc not found.");
+      throw new HttpsError(
+        "not-found",
+        "Connection doc not found."
+      );
     }
     const connData = connSnap.data() || {};
-
-    // Confirm the caller is a participant
     const {senderSUUID, recipientSUUID} = connData;
-    if (callerSUUID !== senderSUUID && callerSUUID !== recipientSUUID) {
-      throw new HttpsError("permission-denied", "Caller is not a participant.");
+
+    // 4) Verify the caller is in this connection
+    if (
+      callerSUUID !== senderSUUID && callerSUUID !== recipientSUUID
+    ) {
+      throw new HttpsError(
+        "permission-denied",
+        "Caller is not a participant."
+      );
     }
 
-    // The "other" user is whichever SUUID is NOT the caller's
-    const otherSUUID = (
-      callerSUUID === senderSUUID
-    ) ? recipientSUUID : senderSUUID;
+    // 5) The *other* participant is whichever SUUID is not the caller
+    const otherSUUID = (callerSUUID === senderSUUID) ?
+      recipientSUUID :
+      senderSUUID;
 
-    // For your usage:
-    //  - 'sender' in the exposureAlerts doc = otherSUUID
-    //  - 'recipient' in the exposureAlerts doc = callerSUUID
-    // That means the user tapping "Request Exposure Alerts" is
-    // the 'recipient' of the future alerts.
-
-    // 2) (Optional) If you want to expire older pending or active alerts,
-    // do it here: E.g. find any exposureAlerts in the last 48 hours for
-    // these participants, set status=5 or do nothing for now.
-
-    // 3) Get all STDI docs (one doc per STDI)
-    const stdiSnap = await db.collection("STDI").get();
+    // So:
+    //   sender   = otherSUUID  (the one who might test positive)
+    //   recipient= callerSUUID (the one requesting the alerts)
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // 4) For each STDI, create a new doc in 'exposureAlerts'
-    // Fields: STDI, sender=otherSUUID, recipient=callerSUUID,
-    // status=0, createdAt=..., updatedAt=...
-    // We'll store them in a batch for efficiency
-    const batch = db.batch();
+    // 6) Expire old pending alerts for these two
+    //    where (sender=otherSUUID, recipient=callerSUUID, status=0)
+    const existingPendingSnap = await db
+      .collection("exposureAlerts")
+      .where("sender", "==", otherSUUID)
+      .where("recipient", "==", callerSUUID)
+      .where("status", "==", 0)
+      .get();
 
+    const batch = db.batch();
+    existingPendingSnap.docs.forEach((alertDoc) => {
+      batch.update(alertDoc.ref, {
+        status: 5, // Expired
+        updatedAt: now,
+      });
+    });
+
+    // 7) Create new pending alerts for each STDI doc
+    const stdiSnap = await db.collection("STDI").get();
     stdiSnap.forEach((stdiDoc) => {
-      const stdiId = stdiDoc.id; // e.g. "CHLAM"
-      const alertRef = db.collection("exposureAlerts").doc();
-      batch.set(alertRef, {
+      const stdiId = stdiDoc.id; // e.g., "CHLAM"
+      const newAlertRef = db.collection("exposureAlerts").doc();
+      batch.set(newAlertRef, {
         STDI: stdiId,
         sender: otherSUUID,
         recipient: callerSUUID,
@@ -106,7 +125,12 @@ export const requestExposureAlerts = onCall(
       });
     });
 
+    // 8) Commit the batch
     await batch.commit();
-    return {success: true, count: stdiSnap.size};
-  }
-);
+
+    return {
+      success: true,
+      expiredCount: existingPendingSnap.size,
+      newCount: stdiSnap.size,
+    };
+  });

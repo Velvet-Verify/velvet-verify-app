@@ -1,5 +1,4 @@
 // app/(tabs)/connections.tsx
-
 import React, { useEffect, useState, useMemo } from "react";
 import {
   View,
@@ -15,6 +14,13 @@ import { useConnections } from "@/src/context/ConnectionsContext";
 import { useTheme } from "styled-components/native";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { firebaseApp } from "@/src/firebase/config";
+import {
+  getFirestore,
+  collection,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
 import { useAuth } from "@/src/context/AuthContext";
 import { useStdis } from "@/hooks/useStdis";
 import { ThemedButton } from "@/components/ui/ThemedButton";
@@ -29,8 +35,8 @@ export interface Connection {
   imageUrl: string | null;
   createdAt: string | null;
   expiresAt: string | null;
-  connectionLevel: number;       // e.g. 2=New,3=Friend,4=Bond
-  connectionStatus: number;      // 0 => pending, 1 => active, 5 => cancelled, etc.
+  connectionLevel: number; // e.g. 2=New,3=Friend,4=Bond
+  connectionStatus: number; // 0 => pending, 1 => active, 5 => cancelled, etc.
   senderSUUID: string;
   recipientSUUID: string;
 }
@@ -45,6 +51,16 @@ interface DisplayConnection extends Connection {
   pendingRecipientSUUID?: string;
   pendingLevelName?: string;
   pendingLevelId?: number; // optionally store numeric ID
+
+  /**
+   * If there's a pending exposure request doc, we set hasPendingExposure=true.
+   * We also store exposureAlertType to indicate which direction:
+   *   - "iRequested" => doc has sender=other, recipient=me
+   *   - "theyRequested" => doc has sender=me, recipient=other
+   *   - "both" => if for some reason both exist
+   */
+  hasPendingExposure?: boolean;
+  exposureAlertType?: "iRequested" | "theyRequested" | "both";
 }
 
 export default function ConnectionsScreen() {
@@ -97,7 +113,9 @@ export default function ConnectionsScreen() {
     const pairMap = new Map<string, { active?: Connection; pending?: Connection }>();
 
     // Filter out canceled, rejected, etc. Keep only pending(0) or active(1).
-    const relevant = connections.filter(c => [0, 1].includes(c.connectionStatus));
+    const relevant = connections.filter((c) =>
+      [0, 1].includes(c.connectionStatus)
+    );
 
     for (const c of relevant) {
       const key = getPairKey(c);
@@ -151,7 +169,7 @@ export default function ConnectionsScreen() {
     const newOnes: DisplayConnection[] = [];
     const pending: DisplayConnection[] = [];
 
-    displayConnections.forEach(c => {
+    displayConnections.forEach((c) => {
       if (c.connectionStatus === 1) {
         switch (c.connectionLevel) {
           case 4:
@@ -172,6 +190,93 @@ export default function ConnectionsScreen() {
 
     return { bonded, friends, newOnes, pending };
   }, [displayConnections]);
+
+  /**
+   * 2) Check for exposureAlerts => We do TWO checks:
+   *   (1) docs with sender=other, recipient=mySUUID, status=0  => "iRequested"
+   *   (2) docs with sender=mySUUID, recipient=other, status=0  => "theyRequested"
+   */
+  useEffect(() => {
+    if (!mySUUID) return;
+    if (displayConnections.length === 0) return;
+
+    const db = getFirestore(firebaseApp);
+
+    (async function checkExposureAlerts() {
+      // We'll store pairKey => { iRequested: boolean, theyRequested: boolean }
+      const pairMap = new Map<
+        string,
+        { iRequested?: boolean; theyRequested?: boolean }
+      >();
+
+      for (const c of displayConnections) {
+        const other = c.senderSUUID === mySUUID ? c.recipientSUUID : c.senderSUUID;
+        // build a stable key
+        const pairKey = [mySUUID, other].sort().join("_");
+        if (!pairMap.has(pairKey)) {
+          pairMap.set(pairKey, {});
+        }
+
+        try {
+          const colRef = collection(db, "exposureAlerts");
+
+          // scenario (1): iRequested => doc with (sender=other, recipient=mySUUID, status=0)
+          const q1 = query(
+            colRef,
+            where("sender", "==", other),
+            where("recipient", "==", mySUUID),
+            where("status", "==", 0)
+          );
+          const snap1 = await getDocs(q1);
+          const iRequested = !snap1.empty;
+
+          // scenario (2): theyRequested => doc with (sender=mySUUID, recipient=other, status=0)
+          const q2 = query(
+            colRef,
+            where("sender", "==", mySUUID),
+            where("recipient", "==", other),
+            where("status", "==", 0)
+          );
+          const snap2 = await getDocs(q2);
+          const theyRequested = !snap2.empty;
+
+          pairMap.set(pairKey, { iRequested, theyRequested });
+        } catch (err) {
+          console.warn("Error checking exposure for pair:", pairKey, err);
+        }
+      }
+
+      // Now update each displayConnection with hasPendingExposure and exposureAlertType
+      displayConnections.forEach((dc) => {
+        const other =
+          dc.senderSUUID === mySUUID ? dc.recipientSUUID : dc.senderSUUID;
+        const pairKey = [mySUUID, other].sort().join("_");
+
+        const info = pairMap.get(pairKey);
+        if (!info) return;
+
+        const iRequested = info.iRequested === true;
+        const theyRequested = info.theyRequested === true;
+
+        if (iRequested || theyRequested) {
+          dc.hasPendingExposure = true;
+          if (iRequested && theyRequested) {
+            dc.exposureAlertType = "both";
+          } else if (iRequested) {
+            dc.exposureAlertType = "iRequested";
+          } else {
+            dc.exposureAlertType = "theyRequested";
+          }
+        }
+      });
+
+      // Force a re-render
+      setStateHack(Math.random());
+    })();
+  }, [mySUUID, displayConnections]);
+
+  // A small hack to force re-render after we change the objects in place:
+  const [_, setStateHack] = useState(0);
 
   const isIOS = Platform.OS === "ios";
   const bottomPadding = isIOS ? insets.bottom + 60 : 15;
@@ -204,7 +309,7 @@ export default function ConnectionsScreen() {
   ) {
     if (!data || data.length === 0) return null;
 
-    const icon = isOpen ? '▼' : '►';
+    const icon = isOpen ? "▼" : "►";
 
     return (
       <View style={{ marginBottom: 10 }}>
@@ -222,7 +327,7 @@ export default function ConnectionsScreen() {
         {/* The list only if open */}
         {isOpen && (
           <View style={{ paddingLeft: 10, marginTop: 5 }}>
-            {data.map(item => (
+            {data.map((item) => (
               <TouchableOpacity
                 key={item.connectionDocId || Math.random().toString()}
                 activeOpacity={0.7}
@@ -247,7 +352,7 @@ export default function ConnectionsScreen() {
         Then in ListEmptyComponent, we render collapsible groups. 
       */}
       <FlatList
-        data={[]} 
+        data={[]}
         keyExtractor={() => Math.random().toString()}
         renderItem={() => null}
         refreshControl={
@@ -259,20 +364,40 @@ export default function ConnectionsScreen() {
         }
         ListEmptyComponent={
           <View style={{ paddingBottom: bottomPadding }}>
-            {renderCollapsibleGroup("Bonded Partners", bonded, bondedOpen, setBondedOpen)}
-            {renderCollapsibleGroup("Friends", friends, friendsOpen, setFriendsOpen)}
-            {renderCollapsibleGroup("New Connections", newOnes, newOpen, setNewOpen)}
-            {renderCollapsibleGroup("Pending Requests", pending, pendingOpen, setPendingOpen)}
+            {renderCollapsibleGroup(
+              "Bonded Partners",
+              bonded,
+              bondedOpen,
+              setBondedOpen
+            )}
+            {renderCollapsibleGroup(
+              "Friends",
+              friends,
+              friendsOpen,
+              setFriendsOpen
+            )}
+            {renderCollapsibleGroup(
+              "New Connections",
+              newOnes,
+              newOpen,
+              setNewOpen
+            )}
+            {renderCollapsibleGroup(
+              "Pending Requests",
+              pending,
+              pendingOpen,
+              setPendingOpen
+            )}
 
             {/* If all are empty, show text */}
             {bonded.length === 0 &&
-             friends.length === 0 &&
-             newOnes.length === 0 &&
-             pending.length === 0 && (
-              <View style={{ alignItems: 'center', marginTop: 20 }}>
-                <Text style={theme.bodyText}>No connections found.</Text>
-              </View>
-            )}
+              friends.length === 0 &&
+              newOnes.length === 0 &&
+              pending.length === 0 && (
+                <View style={{ alignItems: "center", marginTop: 20 }}>
+                  <Text style={theme.bodyText}>No connections found.</Text>
+                </View>
+              )}
           </View>
         }
       />
@@ -308,11 +433,11 @@ export default function ConnectionsScreen() {
 const styles = StyleSheet.create({
   groupTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   collapsibleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 6,
   },
 });
