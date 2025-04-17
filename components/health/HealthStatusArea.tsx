@@ -1,19 +1,16 @@
 // components/health/HealthStatusArea.tsx
 import React from 'react';
 import { View, Text } from 'react-native';
-import { HealthStatusCard } from './HealthStatusCard';
 import { useTheme } from 'styled-components/native';
+import { HealthStatusCard } from './HealthStatusCard';
+import { ThemedButton } from '@/components/ui/ThemedButton';
 
-type STI = {
-  id: string;
-  name?: string;
-  windowPeriodMax?: number;
-};
+type STI = { id: string; name?: string; windowPeriodMax?: number };
 
 type HealthStatus = {
   id: string;
-  testResult?: boolean;   // True => Positive, false => Negative
-  testDate?: any;         // Firestore Timestamp, etc.
+  testResult?: boolean;
+  testDate?: any;
   exposureStatus?: boolean;
   exposureDate?: any;
 };
@@ -22,9 +19,17 @@ interface HealthStatusAreaProps {
   stdis: STI[];
   statuses: { [key: string]: HealthStatus } | null;
   hideExposure?: boolean;
+
+  /** Handler for the brand‑new “Submit Test Results” button */
+  onSubmitTest?: () => void;
 }
 
-export function HealthStatusArea({ stdis, statuses, hideExposure }: HealthStatusAreaProps) {
+export function HealthStatusArea({
+  stdis,
+  statuses,
+  hideExposure,
+  onSubmitTest,
+}: HealthStatusAreaProps) {
   const theme = useTheme();
 
   if (!stdis || stdis.length === 0) {
@@ -34,17 +39,22 @@ export function HealthStatusArea({ stdis, statuses, hideExposure }: HealthStatus
   return (
     <View style={{ width: '100%' }}>
       {stdis.map((stdi) => {
-        // Use an empty object if statuses is null
         const status = (statuses || {})[stdi.id] || {};
         const testResult =
           typeof status.testResult === 'boolean'
-            ? (status.testResult ? 'Positive' : 'Negative')
+            ? status.testResult
+              ? 'Positive'
+              : 'Negative'
             : 'Not Tested';
+
         const exposure =
           typeof status.exposureStatus === 'boolean'
-            ? (status.exposureStatus ? 'Exposed' : 'Not Exposed')
+            ? status.exposureStatus
+              ? 'Exposed'
+              : 'Not Exposed'
             : 'Not Exposed';
-        const exposureDate = (exposure === 'Exposed') ? status.exposureDate : null;
+
+        const exposureDate = exposure === 'Exposed' ? status.exposureDate : null;
 
         return (
           <HealthStatusCard
@@ -58,6 +68,18 @@ export function HealthStatusArea({ stdis, statuses, hideExposure }: HealthStatus
           />
         );
       })}
+
+      {/* NEW: submit‑results button */}
+      {onSubmitTest && (
+        <View style={{ marginTop: 24, alignItems: 'center' }}>
+          <ThemedButton
+            title="Submit Test Results"
+            variant="primary"
+            onPress={onSubmitTest}
+            style={{ width: '80%' }}
+          />
+        </View>
+      )}
     </View>
   );
 }

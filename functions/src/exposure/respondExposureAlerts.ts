@@ -9,24 +9,14 @@ import * as admin from "firebase-admin";
 import {computeHash} from "../computeHashedId";
 import {STANDARD_HASH_KEY, EXPOSURE_HASH_KEY} from "../params";
 
-interface ExposureAlertDoc {
-  STDI: string;
-  sender: string;
-  recipient: string;
-  status: number;
-  createdAt: admin.firestore.Timestamp;
-  updatedAt: admin.firestore.Timestamp;
-}
-
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
 
 interface RespondExposureData {
-  connectionDocId: string; // the same doc from "connections"
+  connectionDocId: string; // which connection they're responding about
   action: "accept" | "decline";
-  // or you could do a boolean, or two separate CF functions, etc.
 }
 
 const callableOptions: CallableOptions = {
@@ -35,19 +25,12 @@ const callableOptions: CallableOptions = {
 };
 
 /**
- * This CF is called by the user (the one who might test positive).
- * We find all exposureAlerts with:
- *   sender = that user’s SUUID
- *   recipient = the "other" user’s SUUID
- *   status=0
- * Then we set them to status=1 if accepted, 2 if declined,
- * and we re-hash (sender) / (recipient) fields to anonymize them.
+ * respondExposureAlerts:
+ *  - The user who might test positive accepts/declines request.
  */
 export const respondExposureAlerts = onCall(
   callableOptions,
-  async (
-    request: CallableRequest<RespondExposureData>
-  ) => {
+  async (request: CallableRequest<RespondExposureData>) => {
     if (!request.auth) {
       throw new HttpsError(
         "unauthenticated",
@@ -69,21 +52,15 @@ export const respondExposureAlerts = onCall(
       );
     }
 
-    // 1) Verify the caller is part of that connection
+    // 1) Verify the caller is a participant in that connection
     const callerUid = request.auth.uid;
-    const callerSUUID = await computeHash(
-      "standard",
-      callerUid
-    );
+    const callerSUUID = await computeHash("standard", callerUid);
 
     const connSnap = await db.collection(
       "connections"
     ).doc(connectionDocId).get();
     if (!connSnap.exists) {
-      throw new HttpsError(
-        "not-found",
-        "Connection doc not found."
-      );
+      throw new HttpsError("not-found", "Connection doc not found.");
     }
     const connData = connSnap.data() || {};
     if (
@@ -92,26 +69,31 @@ export const respondExposureAlerts = onCall(
     ) {
       throw new HttpsError(
         "permission-denied",
-        "Caller is not a participant of this connection."
+        "Caller is not a participant."
       );
     }
 
-    // 2) The "other" user is the one who requested the alerts
+    // The sender is the ESUUID of the user who might test positive
+    // We must find all docs where "sender" = the ESUUID of the caller.
+    // who can accept or decline giving exposure.
+    const callerESUUID = await computeHash("exposure", "", callerSUUID);
+
+    // The other participant's SUUID
     const otherSUUID =
       callerSUUID === connData.senderSUUID ?
         connData.recipientSUUID :
         connData.senderSUUID;
+    const otherESUUID = await computeHash("exposure", "", otherSUUID);
 
-    // 3) We find all exposureAlerts:
-    //   sender=callerSUUID (the one who might test positive),
-    //   recipient=otherSUUID (the one who requested alerts),
-    //   status=0 => pending
+    // 3) Find all exposureAlerts with:
+    // sender=callerESUUID, recipient=otherESUUID, status=0
     const alertsSnap = await db
       .collection("exposureAlerts")
-      .where("sender", "==", callerSUUID)
-      .where("recipient", "==", otherSUUID)
-      .where("status", "==", 0)
+      .where("sender", "==", callerESUUID)
+      .where("recipient", "==", otherESUUID)
+      .where("status", "==", 0) // pending
       .get();
+
     if (alertsSnap.empty) {
       return {
         success: false,
@@ -119,46 +101,18 @@ export const respondExposureAlerts = onCall(
       };
     }
 
-    // 4) We'll set them all to 1 (Accepted) or 2 (Declined).
-    // Also, we re-hash the doc fields to anonymize them.
     const newStatus = action === "accept" ? 1 : 2;
     const batch = db.batch();
+    const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // For each doc, we:
-    //   - re-hash sender => ESUUID
-    // If you want to also re-hash recipient on decline => do it
-    for (const docSnap of alertsSnap.docs) {
-      const data = docSnap.data();
+    // 4) Update them all to the new status, no re-hash needed
+    alertsSnap.forEach((docSnap) => {
       const docRef = docSnap.ref;
-
-      const oldSenderSUUID = data.sender;
-      const oldRecipientSUUID = data.recipient;
-
-      // => Convert them to ESUUID
-      const hashedSender = await computeHash(
-        "exposure",
-        "",
-        oldSenderSUUID
-      );
-
-      const updateFields: admin.firestore.UpdateData<ExposureAlertDoc> = {
+      batch.update(docRef, {
         status: newStatus,
-        sender: hashedSender,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-
-      if (action === "decline") {
-        // Also anonymize the recipient if you want to “shred” it
-        const hashedRecipient = await computeHash(
-          "exposure",
-          "",
-          oldRecipientSUUID
-        );
-        updateFields.recipient = hashedRecipient;
-      }
-
-      batch.update(docRef, updateFields);
-    }
+        updatedAt: now,
+      });
+    });
 
     await batch.commit();
 

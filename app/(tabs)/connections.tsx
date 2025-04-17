@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useConnections } from "@/src/context/ConnectionsContext";
@@ -34,31 +35,20 @@ export interface Connection {
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;
-  expiresAt: string | null;
-  connectionLevel: number; // e.g. 2=New,3=Friend,4=Bond
-  connectionStatus: number; // 0 => pending, 1 => active, 5 => cancelled, etc.
+  updatedAt?: string | null;
+  connectionLevel: number;   // 1=Blocked, 2=New, 3=Fling, 4=Friend, 5=Bond
+  connectionStatus: number;  // 0=pending, 1=active, etc.
   senderSUUID: string;
   recipientSUUID: string;
 }
 
-/** 
- * For merging, we store info about a second doc:
- * pendingDocId, pendingSenderSUUID, pendingRecipientSUUID, pendingLevelName, ...
- */
 interface DisplayConnection extends Connection {
   pendingDocId?: string;
   pendingSenderSUUID?: string;
   pendingRecipientSUUID?: string;
   pendingLevelName?: string;
-  pendingLevelId?: number; // optionally store numeric ID
+  pendingLevelId?: number;
 
-  /**
-   * If there's a pending exposure request doc, we set hasPendingExposure=true.
-   * We also store exposureAlertType to indicate which direction:
-   *   - "iRequested" => doc has sender=other, recipient=me
-   *   - "theyRequested" => doc has sender=me, recipient=other
-   *   - "both" => if for some reason both exist
-   */
   hasPendingExposure?: boolean;
   exposureAlertType?: "iRequested" | "theyRequested" | "both";
 }
@@ -75,18 +65,28 @@ export default function ConnectionsScreen() {
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const [mySUUID, setMySUUID] = useState<string>("");
 
-  // Collapsible state for each group
-  const [bondedOpen, setBondedOpen] = useState(true);
-  const [friendsOpen, setFriendsOpen] = useState(true);
-  const [newOpen, setNewOpen] = useState(true);
+  // Collapsible states
+  const [bondOpen, setBondOpen] = useState(true);      // level=5
+  const [friendOpen, setFriendOpen] = useState(true);  // level=4
+  const [flingOpen, setFlingOpen] = useState(true);    // level=3
+  const [newOpen, setNewOpen] = useState(true);        // level=2
+  const [blockedOpen, setBlockedOpen] = useState(true);// level=1
   const [pendingOpen, setPendingOpen] = useState(true);
+
+  const [forceRender, setForceRender] = useState(0);
 
   const functionsInstance = getFunctions(firebaseApp);
   const computeHashedIdCF = httpsCallable(functionsInstance, "computeHashedId");
+  const updateConnectionStatusCF = useMemo(
+    () => httpsCallable(functionsInstance, "updateConnectionStatus"),
+    [functionsInstance]
+  );
+
   const { user } = useAuth();
   const { stdis } = useStdis();
+  const db = getFirestore(firebaseApp);
 
-  // 1) Compute the user’s SUUID
+  // 1) Compute my SUUID
   useEffect(() => {
     async function fetchMySUUID() {
       if (!user) return;
@@ -98,24 +98,95 @@ export default function ConnectionsScreen() {
       }
     }
     fetchMySUUID();
-  }, [user]);
+  }, [user, computeHashedIdCF]);
 
-  /**
-   * Build a single array of “display connections” from the raw `connections`.
-   * - If there's both an active doc & a pending doc for the same pair, we merge them
-   */
+  // 2) Expire "short-term" connections => New(2) or Fling(3) after 48hrs
+  useEffect(() => {
+    if (!loading && connections.length > 0) {
+      checkAndExpireShortTerm();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, connections]);
+
+  async function checkAndExpireShortTerm() {
+    const now = Date.now();
+    const cutoffMs = now - 48 * 60 * 60 * 1000; // 48 hours
+
+    const updatesNeeded: Array<Promise<any>> = [];
+
+    for (const c of connections) {
+      // only if active + level in [2=New, 3=Fling]
+      if ([2, 3].includes(c.connectionLevel) && c.connectionStatus === 1 && c.updatedAt) {
+        const updatedTime = new Date(c.updatedAt).getTime();
+        if (updatedTime < cutoffMs && c.connectionDocId) {
+          // Deactivate => status=4
+          updatesNeeded.push(
+            updateConnectionStatusCF({
+              docId: c.connectionDocId,
+              newStatus: 4, // e.g. Deactivated
+            })
+          );
+          // also expire any pending doc for that pair
+          const pairKey = [c.senderSUUID, c.recipientSUUID].sort().join("_");
+          updatesNeeded.push(expireAnyPendingDoc(pairKey));
+        }
+      }
+    }
+
+    if (updatesNeeded.length > 0) {
+      try {
+        await Promise.all(updatesNeeded);
+        await refreshConnections();
+        Alert.alert(
+          "Expired short-term connections",
+          "Some old New/Fling connections have been deactivated."
+        );
+      } catch (err: any) {
+        console.error("Error expiring short-term connections:", err);
+      }
+    }
+  }
+
+  async function expireAnyPendingDoc(pairKey: string) {
+    const [s1, s2] = pairKey.split("_");
+    try {
+      const qPending = query(
+        db.collection("connections"),
+        where("connectionStatus", "==", 0),
+        // pending doc for short-term => level in [2,3]
+        where("connectionLevel", "in", [2, 3]),
+        where("senderSUUID", "in", [s1, s2]),
+        where("recipientSUUID", "in", [s1, s2])
+      );
+      const snap = await getDocs(qPending);
+      if (snap.empty) return;
+
+      const tasks: Array<Promise<any>> = [];
+      snap.forEach((docSnap) => {
+        tasks.push(
+          updateConnectionStatusCF({
+            docId: docSnap.id,
+            newStatus: 3, // "Expired" or some code
+          })
+        );
+      });
+      if (tasks.length > 0) {
+        await Promise.all(tasks);
+      }
+    } catch (err) {
+      console.warn("Error expiring pending doc for pair:", pairKey, err);
+    }
+  }
+
+  // 3) Merge active & pending docs into "displayConnections"
   const displayConnections = useMemo<DisplayConnection[]>(() => {
     function getPairKey(c: Connection) {
-      const pair = [c.senderSUUID, c.recipientSUUID].sort();
-      return pair.join("_");
+      return [c.senderSUUID, c.recipientSUUID].sort().join("_");
     }
 
     const pairMap = new Map<string, { active?: Connection; pending?: Connection }>();
-
-    // Filter out canceled, rejected, etc. Keep only pending(0) or active(1).
-    const relevant = connections.filter((c) =>
-      [0, 1].includes(c.connectionStatus)
-    );
+    // We'll only consider status=0 (pending) or 1 (active)
+    const relevant = connections.filter((c) => [0, 1].includes(c.connectionStatus));
 
     for (const c of relevant) {
       const key = getPairKey(c);
@@ -132,12 +203,11 @@ export default function ConnectionsScreen() {
     }
 
     const result: DisplayConnection[] = [];
-    for (const [_, { active, pending }] of pairMap.entries()) {
+    for (const { active, pending } of pairMap.values()) {
       if (active && pending) {
-        // Merge the pending doc’s fields into the active doc
-        const lvl = connectionLevels[String(pending.connectionLevel)];
-        const pendingLevelName = lvl?.name ?? `Level ${pending.connectionLevel}`;
-        const mergedActive: DisplayConnection = {
+        const pendingLevelName = connectionLevels[String(pending.connectionLevel)]?.name 
+          || `Level ${pending.connectionLevel}`;
+        const merged: DisplayConnection = {
           ...active,
           pendingDocId: pending.connectionDocId,
           pendingSenderSUUID: pending.senderSUUID,
@@ -145,138 +215,74 @@ export default function ConnectionsScreen() {
           pendingLevelName,
           pendingLevelId: pending.connectionLevel,
         };
-        result.push(mergedActive);
+        result.push(merged);
       } else if (active) {
         result.push(active);
       } else if (pending) {
-        // purely pending doc
         result.push(pending);
       }
     }
     return result;
   }, [connections, connectionLevels]);
 
+  // 4) We used to check "exposureAlertType" or request logic here. 
+  // If removing that, you can strip out this entire effect, 
+  // or keep if there's some leftover "pending" logic to show the user.
+
   /**
-   * Next, group them by category:
-   *  - Bonded => active L4
-   *  - Friends => active L3
-   *  - New => active L2
-   *  - Pending => purely pending doc with L2
+   * If doc is pending (status=0) and I'm the recipient => I must accept/reject.
    */
-  const { bonded, friends, newOnes, pending } = useMemo(() => {
-    const bonded: DisplayConnection[] = [];
-    const friends: DisplayConnection[] = [];
+  function requiresActionFromMe(c: DisplayConnection): boolean {
+    // If we no longer handle exposure requests, skip that portion
+    if (c.connectionStatus === 0 && c.recipientSUUID === mySUUID) {
+      return true;
+    }
+    return false;
+  }
+
+  // 5) Group them by level if active, or mark as "Pending Requests"
+  const {
+    blocked,
+    newOnes,
+    flings,
+    friends,
+    bonds,
+    pendingRequests,
+  } = useMemo(() => {
+    const blocked: DisplayConnection[] = [];
     const newOnes: DisplayConnection[] = [];
-    const pending: DisplayConnection[] = [];
+    const flings: DisplayConnection[] = [];
+    const friends: DisplayConnection[] = [];
+    const bonds: DisplayConnection[] = [];
+    const pendingRequests: DisplayConnection[] = [];
 
     displayConnections.forEach((c) => {
-      if (c.connectionStatus === 1) {
+      if (requiresActionFromMe(c)) {
+        pendingRequests.push(c);
+      } else if (c.connectionStatus === 1) {
+        // If it's active, group by c.connectionLevel:
         switch (c.connectionLevel) {
+          case 5:
+            bonds.push(c);
+            break;
           case 4:
-            bonded.push(c);
+            friends.push(c);
             break;
           case 3:
-            friends.push(c);
+            flings.push(c);
             break;
           case 2:
             newOnes.push(c);
             break;
-          // handle other levels if needed
+          case 1:
+            blocked.push(c);
+            break;
         }
-      } else if (c.connectionStatus === 0 && c.connectionLevel === 2) {
-        pending.push(c);
       }
     });
 
-    return { bonded, friends, newOnes, pending };
-  }, [displayConnections]);
-
-  /**
-   * 2) Check for exposureAlerts => We do TWO checks:
-   *   (1) docs with sender=other, recipient=mySUUID, status=0  => "iRequested"
-   *   (2) docs with sender=mySUUID, recipient=other, status=0  => "theyRequested"
-   */
-  useEffect(() => {
-    if (!mySUUID) return;
-    if (displayConnections.length === 0) return;
-
-    const db = getFirestore(firebaseApp);
-
-    (async function checkExposureAlerts() {
-      // We'll store pairKey => { iRequested: boolean, theyRequested: boolean }
-      const pairMap = new Map<
-        string,
-        { iRequested?: boolean; theyRequested?: boolean }
-      >();
-
-      for (const c of displayConnections) {
-        const other = c.senderSUUID === mySUUID ? c.recipientSUUID : c.senderSUUID;
-        // build a stable key
-        const pairKey = [mySUUID, other].sort().join("_");
-        if (!pairMap.has(pairKey)) {
-          pairMap.set(pairKey, {});
-        }
-
-        try {
-          const colRef = collection(db, "exposureAlerts");
-
-          // scenario (1): iRequested => doc with (sender=other, recipient=mySUUID, status=0)
-          const q1 = query(
-            colRef,
-            where("sender", "==", other),
-            where("recipient", "==", mySUUID),
-            where("status", "==", 0)
-          );
-          const snap1 = await getDocs(q1);
-          const iRequested = !snap1.empty;
-
-          // scenario (2): theyRequested => doc with (sender=mySUUID, recipient=other, status=0)
-          const q2 = query(
-            colRef,
-            where("sender", "==", mySUUID),
-            where("recipient", "==", other),
-            where("status", "==", 0)
-          );
-          const snap2 = await getDocs(q2);
-          const theyRequested = !snap2.empty;
-
-          pairMap.set(pairKey, { iRequested, theyRequested });
-        } catch (err) {
-          console.warn("Error checking exposure for pair:", pairKey, err);
-        }
-      }
-
-      // Now update each displayConnection with hasPendingExposure and exposureAlertType
-      displayConnections.forEach((dc) => {
-        const other =
-          dc.senderSUUID === mySUUID ? dc.recipientSUUID : dc.senderSUUID;
-        const pairKey = [mySUUID, other].sort().join("_");
-
-        const info = pairMap.get(pairKey);
-        if (!info) return;
-
-        const iRequested = info.iRequested === true;
-        const theyRequested = info.theyRequested === true;
-
-        if (iRequested || theyRequested) {
-          dc.hasPendingExposure = true;
-          if (iRequested && theyRequested) {
-            dc.exposureAlertType = "both";
-          } else if (iRequested) {
-            dc.exposureAlertType = "iRequested";
-          } else {
-            dc.exposureAlertType = "theyRequested";
-          }
-        }
-      });
-
-      // Force a re-render
-      setStateHack(Math.random());
-    })();
-  }, [mySUUID, displayConnections]);
-
-  // A small hack to force re-render after we change the objects in place:
-  const [_, setStateHack] = useState(0);
+    return { blocked, newOnes, flings, friends, bonds, pendingRequests };
+  }, [displayConnections, mySUUID]);
 
   const isIOS = Platform.OS === "ios";
   const bottomPadding = isIOS ? insets.bottom + 60 : 15;
@@ -287,20 +293,6 @@ export default function ConnectionsScreen() {
     setDetailsModalVisible(true);
   }
 
-  // If still loading, show spinner
-  if (loading) {
-    return (
-      <View style={[theme.centerContainer]}>
-        <Text style={theme.title}>Loading connections...</Text>
-      </View>
-    );
-  }
-
-  /**
-   * Renders each group in a collapsible container:
-   * - Tapping the header toggles open/closed
-   * - If open => show the items, if closed => items hidden
-   */
   function renderCollapsibleGroup(
     title: string,
     data: DisplayConnection[],
@@ -308,23 +300,18 @@ export default function ConnectionsScreen() {
     setIsOpen: (b: boolean) => void
   ) {
     if (!data || data.length === 0) return null;
-
     const icon = isOpen ? "▼" : "►";
 
     return (
       <View style={{ marginBottom: 10 }}>
-        {/* Header row */}
         <TouchableOpacity
           onPress={() => setIsOpen(!isOpen)}
           style={styles.collapsibleHeader}
           activeOpacity={0.8}
         >
-          <Text style={styles.groupTitle}>
-            {icon} {title}
-          </Text>
+          <Text style={styles.groupTitle}>{icon} {title}</Text>
         </TouchableOpacity>
 
-        {/* The list only if open */}
         {isOpen && (
           <View style={{ paddingLeft: 10, marginTop: 5 }}>
             {data.map((item) => (
@@ -342,15 +329,18 @@ export default function ConnectionsScreen() {
     );
   }
 
+  if (loading) {
+    return (
+      <View style={[theme.centerContainer]}>
+        <Text style={theme.title}>Loading connections...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={containerStyle}>
       <Text style={theme.title}>Your Connections</Text>
 
-      {/* 
-        We still use a FlatList with empty data, 
-        purely for the pull-to-refresh logic. 
-        Then in ListEmptyComponent, we render collapsible groups. 
-      */}
       <FlatList
         data={[]}
         keyExtractor={() => Math.random().toString()}
@@ -364,40 +354,23 @@ export default function ConnectionsScreen() {
         }
         ListEmptyComponent={
           <View style={{ paddingBottom: bottomPadding }}>
-            {renderCollapsibleGroup(
-              "Bonded Partners",
-              bonded,
-              bondedOpen,
-              setBondedOpen
-            )}
-            {renderCollapsibleGroup(
-              "Friends",
-              friends,
-              friendsOpen,
-              setFriendsOpen
-            )}
-            {renderCollapsibleGroup(
-              "New Connections",
-              newOnes,
-              newOpen,
-              setNewOpen
-            )}
-            {renderCollapsibleGroup(
-              "Pending Requests",
-              pending,
-              pendingOpen,
-              setPendingOpen
-            )}
+            {renderCollapsibleGroup("Pending Requests", pendingRequests, pendingOpen, setPendingOpen)}
+            {renderCollapsibleGroup("Bonded Partners", bonds, bondOpen, setBondOpen)}
+            {renderCollapsibleGroup("Friends", friends, friendOpen, setFriendOpen)}
+            {renderCollapsibleGroup("Flings", flings, flingOpen, setFlingOpen)}
+            {renderCollapsibleGroup("New", newOnes, newOpen, setNewOpen)}
+            {renderCollapsibleGroup("Blocked", blocked, blockedOpen, setBlockedOpen)}
 
-            {/* If all are empty, show text */}
-            {bonded.length === 0 &&
-              friends.length === 0 &&
-              newOnes.length === 0 &&
-              pending.length === 0 && (
-                <View style={{ alignItems: "center", marginTop: 20 }}>
-                  <Text style={theme.bodyText}>No connections found.</Text>
-                </View>
-              )}
+            {pendingRequests.length === 0 &&
+             bonds.length === 0 &&
+             friends.length === 0 &&
+             flings.length === 0 &&
+             newOnes.length === 0 &&
+             blocked.length === 0 && (
+              <View style={{ alignItems: "center", marginTop: 20 }}>
+                <Text style={theme.bodyText}>No connections found.</Text>
+              </View>
+            )}
           </View>
         }
       />

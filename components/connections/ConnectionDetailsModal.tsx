@@ -1,4 +1,5 @@
 // components/connections/ConnectionDetailsModal.tsx
+
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, Button, Alert, FlatList } from "react-native";
 import { useTheme } from "styled-components/native";
@@ -11,7 +12,6 @@ import { ConnectionDisconnect } from "@/components/connections/ConnectionDisconn
 import { PendingElevation } from "./PendingElevation";
 import { useConnections } from "@/src/context/ConnectionsContext";
 import { useLookups } from "@/src/context/LookupContext";
-
 import { getFirestore, doc, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable, Functions } from "firebase/functions";
 import { firebaseApp } from "@/src/firebase/config";
@@ -51,8 +51,8 @@ interface ConnectionDetailsModalProps {
   connection: Connection;
 
   /**
-   * If you want to know if the base doc's recipientSUUID is "me" for certain logic,
-   * typically used for accepting an initial L2 connection. 
+   * Indicates if the base doc's recipientSUUID is this user
+   * (for certain acceptance logic).
    */
   isRecipient: boolean;
 
@@ -83,7 +83,7 @@ export function ConnectionDetailsModal({
   const { connectionLevels } = useLookups();
   const { refreshConnections } = useConnections();
 
-  // Firestore and CF init
+  // Firestore / CF
   const db = useMemo(() => getFirestore(firebaseApp), []);
   const functionsInstance = useMemo<Functions>(() => getFunctions(firebaseApp), []);
   const updateConnectionStatusCF = useMemo(
@@ -98,68 +98,65 @@ export function ConnectionDetailsModal({
     () => httpsCallable(functionsInstance, "getUserHealthStatuses"),
     [functionsInstance]
   );
-  // optionally for exposure acceptance
   const respondExposureAlertsCF = useMemo(
     () => httpsCallable(functionsInstance, "respondExposureAlerts"),
     [functionsInstance]
   );
 
-  // Local UI states
+  // Local states
   const [levelName, setLevelName] = useState(`Level ${connection.connectionLevel}`);
   const [statusName, setStatusName] = useState(`Status ${connection.connectionStatus}`);
   const [levelDescription, setLevelDescription] = useState("");
   const [remoteStatuses, setRemoteStatuses] = useState<{ [key: string]: any }>({});
   const [loadingHealth, setLoadingHealth] = useState(false);
 
-  // If doc is active => we can show "Manage" actions
+  // If doc is active => can manage
   const canManage = connection.connectionStatus === 1;
   // Show health if at least L2
   const shouldShowHealth = canManage && connection.connectionLevel >= 2;
 
-  // If there's a merged doc with a pending request
+  // For a merged doc with a pending request
   const hasMergedPending = !!connection.pendingDocId;
-  // If the pending doc's recipient is me => I'm the one who must accept that doc
+  // If I'm the doc's recipient => I must accept
   const isPendingDocRecipient = connection.pendingRecipientSUUID === mySUUID;
 
-  // We'll choose viewMode depending on various states
   const [viewMode, setViewMode] = useState<ViewMode>("results");
 
-  // On mount (or whenever connection changes), figure out which mode to show
+  // Decide initial view mode
   useEffect(() => {
     if (!visible) return;
 
-    // If there's a merged doc pending elevation and I'm the recipient => show that
+    // If there's a merged doc pending elevation and I'm the doc's recipient => pendingElevation
     if (canManage && hasMergedPending && isPendingDocRecipient) {
       setViewMode("pendingElevation");
       return;
     }
 
-    // If there's a pending exposure => check if I'm supposed to accept/decline
-    // That happens if exposureAlertType === "theyRequested"
+    // If there's a pending exposure => see if I'm the one to accept
     if (connection.hasPendingExposure && connection.exposureAlertType === "theyRequested") {
       setViewMode("pendingExposure");
       return;
     }
 
-    // otherwise default to "results"
     setViewMode("results");
   }, [visible, canManage, hasMergedPending, isPendingDocRecipient, connection]);
 
-  // Load base doc's level + status details
+  // Load doc's level + status details
   useEffect(() => {
     if (!visible) return;
     let unsub = false;
 
     (async () => {
       try {
-        // 1) load connectionLevels doc
+        // load connectionLevels doc
         const levelRef = doc(db, "connectionLevels", String(connection.connectionLevel));
         const levelSnap = await getDoc(levelRef);
         if (!unsub && levelSnap.exists()) {
           setLevelName(levelSnap.data().name ?? `Level ${connection.connectionLevel}`);
           setLevelDescription(levelSnap.data().description ?? "");
         }
-        // 2) load connectionStatuses doc
+
+        // load connectionStatuses doc
         const statusRef = doc(db, "connectionStatuses", String(connection.connectionStatus));
         const statusSnap = await getDoc(statusRef);
         if (!unsub && statusSnap.exists()) {
@@ -175,14 +172,12 @@ export function ConnectionDetailsModal({
     };
   }, [visible, db, connection.connectionLevel, connection.connectionStatus]);
 
-  // If the doc is active and level >=2 => load remote user's health status
+  // If doc is active & level≥2 => load remote user's health
   useEffect(() => {
-    if (!visible) return;
-    if (!shouldShowHealth) return;
-    if (!connection.connectionDocId) return;
+    if (!visible || !shouldShowHealth || !connection.connectionDocId) return;
 
     setLoadingHealth(true);
-    (async function loadRemoteHealth() {
+    (async () => {
       try {
         const cDocSnap = await getDoc(doc(db, "connections", connection.connectionDocId!));
         if (!cDocSnap.exists()) {
@@ -191,15 +186,13 @@ export function ConnectionDetailsModal({
         }
         const cDocData = cDocSnap.data();
         // The remote SUUID is the "other user"
-        const remoteSUUID = isRecipient
-          ? cDocData.senderSUUID
-          : cDocData.recipientSUUID;
+        const remoteSUUID = isRecipient ? cDocData.senderSUUID : cDocData.recipientSUUID;
         if (!remoteSUUID) {
           console.warn("No remoteSUUID found in connection data!");
           return;
         }
 
-        // For L2 or L3, we hide actual test dates => pass hideDate=true
+        // For L2 or L3, we hide actual test date => hideDate=true
         const hideDate = connection.connectionLevel === 2 || connection.connectionLevel === 3;
         const result = await getUserHealthStatusesCF({ suuid: remoteSUUID, hideDate });
         setRemoteStatuses(result.data?.statuses || {});
@@ -219,13 +212,12 @@ export function ConnectionDetailsModal({
     getUserHealthStatusesCF,
   ]);
 
-  // Check if this is a purely pending "New" doc => user can accept or reject the connection
+  // If this is a purely pending "New" doc => user can accept or reject
   const isPendingNew =
     connection.connectionStatus === 0 &&
     connection.connectionLevel === 2 &&
     isRecipient;
 
-  // Accept or reject a brand-new L2 doc
   async function handleAcceptNew() {
     if (!connection.connectionDocId) {
       Alert.alert("Error", "Missing connectionDocId for update!");
@@ -263,25 +255,33 @@ export function ConnectionDetailsModal({
     }
   }
 
-  // For toggling between "Manage" and "Results"
+  // Toggling between "Manage" and "Results"
   const manageLabel = viewMode === "management" ? "Results" : "Manage";
   function handleManagePress() {
     setViewMode((prev) => (prev === "management" ? "results" : "management"));
   }
 
-  // Up/down-level a connection
+  /**
+   * handleChangeLevel => if newLevel > currentLevel => "Request to update connection sent."
+   * else => "Updated connection level to X"
+   */
   async function handleChangeLevel(newLevel: number) {
     if (!connection.connectionDocId) {
       Alert.alert("Error", "No docId found.");
       return;
     }
+    const oldLevel = connection.connectionLevel;
     try {
       await updateConnectionLevelCF({
         docId: connection.connectionDocId,
-        currentLevel: connection.connectionLevel,
+        currentLevel: oldLevel,
         newLevel,
       });
-      Alert.alert("Success", `Updated connection level to ${newLevel}`);
+      if (newLevel > oldLevel) {
+        Alert.alert("Request Sent", "Request to update connection sent.");
+      } else {
+        Alert.alert("Success", "Connection updated successfully.");
+      }
       setViewMode("management");
       refreshConnections();
     } catch (err: any) {
@@ -290,7 +290,7 @@ export function ConnectionDetailsModal({
     }
   }
 
-  // Accept or Decline exposure request
+  // Accept or Decline exposure
   async function handleAcceptExposure() {
     if (!connection.connectionDocId) {
       Alert.alert("Error", "Missing connectionDocId.");
@@ -328,7 +328,7 @@ export function ConnectionDetailsModal({
     }
   }
 
-  // Header for the FlatList
+  // Header for FlatList
   function renderHeader() {
     return (
       <View>
@@ -352,9 +352,7 @@ export function ConnectionDetailsModal({
         {/* If this is a brand-new L2 doc => Accept/Reject UI */}
         {isPendingNew && (
           <View style={styles.pendingContainer}>
-            <Text
-              style={[theme.bodyText, { fontWeight: "bold", marginBottom: 10 }]}
-            >
+            <Text style={[theme.bodyText, { fontWeight: "bold", marginBottom: 10 }]}>
               User has initiated a connection request.
             </Text>
             {!!levelDescription && (
@@ -380,17 +378,15 @@ export function ConnectionDetailsModal({
     );
   }
 
-  // Footer for the FlatList => different UI segments depending on viewMode
+  // Footer => depends on viewMode
   function renderFooter() {
     if (!canManage) return null;
 
-    // If the user is seeing a pending exposure request
+    // If the user sees a pending exposure request
     if (viewMode === "pendingExposure") {
       return (
         <View style={[theme.centerContainer, { paddingHorizontal: 20 }]}>
-          <Text
-            style={[theme.bodyText, { fontWeight: "bold", marginVertical: 10 }]}
-          >
+          <Text style={[theme.bodyText, { fontWeight: "bold", marginVertical: 10 }]}>
             The other user has requested exposure alerts if you test positive.
           </Text>
           <View style={styles.buttonRow}>
@@ -409,7 +405,7 @@ export function ConnectionDetailsModal({
       );
     }
 
-    // If there's a pending doc for elevation (like L3→L4)
+    // If there's a pending doc for elevation
     if (viewMode === "pendingElevation") {
       return (
         <PendingElevation
@@ -422,7 +418,7 @@ export function ConnectionDetailsModal({
       );
     }
 
-    // If showing "results", we show health data if the level≥2
+    // If "results", show health data if level≥2
     if (viewMode === "results") {
       if (!shouldShowHealth) return null;
       return (
@@ -439,7 +435,7 @@ export function ConnectionDetailsModal({
       );
     }
 
-    // "management" => show disconnect, change level, request exposure, etc.
+    // "management" => show disconnect, level change, etc.
     if (viewMode === "management") {
       return (
         <ConnectionManagement
@@ -448,9 +444,7 @@ export function ConnectionDetailsModal({
           mySUUID={mySUUID}
           onChangeType={() => setViewMode("changeLevel")}
           onDisconnect={() => setViewMode("disconnect")}
-          onRequestExposure={() =>
-            Alert.alert("TODO", "Request Exposure Alerts action")
-          }
+          onRequestExposure={() => Alert.alert("TODO", "Request Exposure Alerts action")}
         />
       );
     }
@@ -466,13 +460,13 @@ export function ConnectionDetailsModal({
       );
     }
 
-    // "disconnect" => show "Are you sure?" flow
+    // "disconnect" => show a confirm UI
     if (viewMode === "disconnect") {
       return (
         <ConnectionDisconnect
           baseDocId={connection.connectionDocId!}
           mySUUID={mySUUID!}
-          // figure out who the other user is:
+          // figure out the other user
           otherSUUID={
             mySUUID === connection.senderSUUID
               ? connection.recipientSUUID
@@ -488,7 +482,6 @@ export function ConnectionDetailsModal({
 
   return (
     <ThemedModal visible={visible} onRequestClose={onClose} useBlur>
-      {/* We use an empty FlatList so we can have a scrollable area with header+footer */}
       <FlatList
         data={[]}
         keyExtractor={() => "dummy"}

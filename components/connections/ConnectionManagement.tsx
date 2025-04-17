@@ -26,6 +26,15 @@ interface ConnectionManagementProps {
   onDisconnect?: () => void;
 }
 
+/**
+ * Manages a connection with:
+ * - Cancel request (if pending & I'm sender)
+ * - Change type (if active)
+ * - Disconnect
+ * - Checking if exposure is pending/active (shown as text only).
+ * 
+ * Removed only the "Request Exposure Alerts" button + function.
+ */
 export function ConnectionManagement({
   connection,
   isRecipient,
@@ -40,11 +49,11 @@ export function ConnectionManagement({
 
   const functionsInstance = getFunctions(firebaseApp);
   const updateConnectionStatusCF = httpsCallable(functionsInstance, 'updateConnectionStatus');
-  const requestExposureAlertsCF = httpsCallable(functionsInstance, 'requestExposureAlerts');
-  const computeHashedIdCF = httpsCallable(functionsInstance, 'computeHashedId'); // We'll use this to get ESUUID
+  const computeHashedIdCF = httpsCallable(functionsInstance, 'computeHashedId');
 
-  // We show a "Cancel X Request" button if there's a pending doc (merged or single)
-  // AND the current user is that doc's sender
+  // We used to import requestExposureAlertsCF here. Now removed.
+
+  // Checking if there's a "merged" pending doc:
   const hasMergedPending = !!connection.pendingDocId;
 
   let isPendingSender = false;
@@ -52,7 +61,7 @@ export function ConnectionManagement({
   let pendingLevelName: string | undefined;
 
   if (hasMergedPending) {
-    // For the merged doc
+    // For merged doc
     isPendingSender = connection.pendingSenderSUUID === mySUUID;
     docIdToCancel = connection.pendingDocId;
     pendingLevelName = connection.pendingLevelName;
@@ -66,7 +75,9 @@ export function ConnectionManagement({
 
   const showCancel = !!docIdToCancel && isPendingSender;
 
-  // If doc is active & level=2 => user can "Request Exposure Alerts"
+  // If doc is active & level=2 => we previously had "Request Exposure" button,
+  // now removed. We'll keep the logic to see if there's a pending or active exposure, 
+  // so the user can see the text about it.
   const meetsBaseExposureCondition =
     connection.connectionStatus === 1 && connection.connectionLevel === 2;
 
@@ -74,15 +85,10 @@ export function ConnectionManagement({
   const lvl = connectionLevels[String(connection.connectionLevel)];
   const activeLevelName = lvl?.name ?? `Level ${connection.connectionLevel}`;
 
-  // We track whether there's a pending or active doc (in the last 48h)
+  // Expose local states for whether there's a pending or active doc in last 48h
   const [exposurePending, setExposurePending] = useState(false);
   const [exposureActive, setExposureActive] = useState(false);
 
-  // On mount, check if there's any exposureAlert doc with:
-  //   status in [0,1]
-  //   recipient = mySUUID
-  //   sender = either the other user's standard SUUID (for pending) or their ESUUID (for accepted)
-  // and created in last 48h.
   useEffect(() => {
     if (!mySUUID || !meetsBaseExposureCondition) {
       return;
@@ -96,10 +102,10 @@ export function ConnectionManagement({
             ? connection.recipientSUUID
             : connection.senderSUUID;
 
-        // 1) Compute the exposure ESUUID for that user
+        // 1) Compute the exposure ESUUID for the other user
         const result = await computeHashedIdCF({
           hashType: 'exposure',
-          inputSUUID: otherSUUID, // we feed the standard SUUID in
+          inputSUUID: otherSUUID,
         });
         const otherESUUID = result.data.hashedId as string;
 
@@ -107,10 +113,10 @@ export function ConnectionManagement({
         const cutoffMs = Date.now() - 48 * 60 * 60 * 1000;
 
         const alertsRef = collection(db, 'exposureAlerts');
-        // Query for any doc where:
-        //   sender is in [otherSUUID, otherESUUID],
-        //   recipient = mySUUID,
-        //   status in [0,1].
+        // Check for docs where:
+        //   sender in [otherSUUID, otherESUUID]
+        //   recipient=mySUUID
+        //   status in [0=Pending, 1=Accepted]
         const q = query(
           alertsRef,
           where('sender', 'in', [otherSUUID, otherESUUID]),
@@ -145,25 +151,17 @@ export function ConnectionManagement({
             }
           }
 
-          // If you prefer ignoring time-based logic, remove this block
-          if (createdTime < cutoffMs) {
-            // older than 48h => skip
-            return;
-          }
+          // If older than 48h => skip
+          if (createdTime < cutoffMs) return;
 
-          if (data.status === 0) {
-            foundPending = true;
-          } else if (data.status === 1) {
-            foundActive = true;
-          }
-
-          // console.log('Found exposure alert doc:', docSnap.id, data);
+          if (data.status === 0) foundPending = true;
+          if (data.status === 1) foundActive = true;
         });
 
         setExposurePending(foundPending);
         setExposureActive(foundActive);
       } catch (err) {
-        // console.error('Error checking exposure alerts (with ESUUID):', err);
+        // Optionally log or ignore
       }
     }
 
@@ -176,7 +174,7 @@ export function ConnectionManagement({
       await updateConnectionStatusCF({ docId: docIdToCancel, newStatus: 5 });
       Alert.alert(
         'Cancelled',
-        `${pendingLevelName || 'Connection'} request was cancelled.`
+        `${pendingLevelName || activeLevelName} request was cancelled.`
       );
       refreshConnections();
     } catch (err: any) {
@@ -185,20 +183,7 @@ export function ConnectionManagement({
     }
   }
 
-  async function handleRequestExposure() {
-    if (!connection.connectionDocId) return;
-    try {
-      await requestExposureAlertsCF({
-        connectionDocId: connection.connectionDocId,
-      });
-      Alert.alert('Success', 'Exposure alert requests created!');
-      // If you want to instantly reflect this in UI:
-      setExposurePending(true);
-    } catch (err: any) {
-      console.error('Error requesting exposure alerts:', err);
-      Alert.alert('Error', err.message || 'Failed to request alerts.');
-    }
-  }
+  // The old handleRequestExposure & requestExposureAlertsCF import are removed.
 
   return (
     <View style={[theme.centerContainer, styles.container]}>
@@ -228,6 +213,8 @@ export function ConnectionManagement({
           style={styles.button}
         />
 
+        {/* We used to show a "Request Exposure Alerts" button here, 
+            replaced with read-only status text for your convenience. */}
         {meetsBaseExposureCondition && (
           <>
             {exposureActive ? (
@@ -239,12 +226,8 @@ export function ConnectionManagement({
                 Request for Exposure Alerts Pending
               </Text>
             ) : (
-              <ThemedButton
-                title="Request Exposure Alerts"
-                variant="primary"
-                onPress={handleRequestExposure}
-                style={styles.button}
-              />
+              // No button: just no content if neither is true.
+              null
             )}
           </>
         )}
