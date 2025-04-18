@@ -1,6 +1,6 @@
 // components/ui/ThemedModal.tsx
 import React from 'react';
-import { Modal, ModalProps, View, ScrollView } from 'react-native';
+import { Modal, ModalProps, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useTheme } from 'styled-components/native';
 
@@ -11,26 +11,16 @@ type ThemedModalProps = ModalProps & {
 
 export function ThemedModal({ children, useBlur = false, ...rest }: ThemedModalProps) {
   const theme = useTheme();
+
+  const Container = (
+    <View style={[theme.modalBackground, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={theme.modalContainer}>{children}</View>
+    </View>
+  );
+
   return (
-    <Modal
-      {...rest}
-      transparent
-      presentationStyle="overFullScreen"
-      animationType="slide"
-    >
-      {useBlur ? (
-        <BlurView intensity={50} style={theme.modalBackground}>
-          <View style={theme.modalContainer}>
-            {children}
-          </View>
-        </BlurView>
-      ) : (
-        <View style={theme.modalBackground}>
-          <View style={theme.modalContainer}>
-            {children}
-          </View>
-        </View>
-      )}
+    <Modal {...rest} transparent animationType="slide" presentationStyle="overFullScreen">
+      {useBlur ? <BlurView intensity={50} style={{ flex: 1 }}>{Container}</BlurView> : Container}
     </Modal>
   );
 }

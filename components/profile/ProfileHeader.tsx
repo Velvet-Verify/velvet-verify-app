@@ -72,8 +72,8 @@ export function ProfileHeader({
       <View style={theme.profileTextContainer}>
         <Text style={theme.profileName}>{displayName}</Text>
 
-        {connectionType && <Text style={theme.bodyText}>Connection Type: {connectionType}</Text>}
-        {connectionStatus && <Text style={theme.bodyText}>Status: {connectionStatus}</Text>}
+        {connectionType && <Text style={theme.bodyText}>{connectionType}</Text>}
+        {/* {connectionStatus && <Text style={theme.bodyText}>Status: {connectionStatus}</Text>} */}
 
         {!hideEditButtons && (
           <View style={theme.profileHeaderActionsRow}>
@@ -85,11 +85,11 @@ export function ProfileHeader({
 
             {/* Submit‑test link completely removed */}
 
-            {showManageButton && onManagePress && (
+            {/* {showManageButton && onManagePress && (
               <TouchableOpacity onPress={onManagePress}>
                 <Text style={theme.profileHeaderLink}>{manageLabel ?? 'Manage'}</Text>
               </TouchableOpacity>
-            )}
+            )} */}
           </View>
         )}
       </View>

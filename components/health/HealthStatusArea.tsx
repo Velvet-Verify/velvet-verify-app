@@ -1,4 +1,3 @@
-// components/health/HealthStatusArea.tsx
 import React from 'react';
 import { View, Text } from 'react-native';
 import { useTheme } from 'styled-components/native';
@@ -15,12 +14,10 @@ type HealthStatus = {
   exposureDate?: any;
 };
 
-interface HealthStatusAreaProps {
+interface Props {
   stdis: STI[];
-  statuses: { [key: string]: HealthStatus } | null;
+  statuses: Record<string, HealthStatus> | null;
   hideExposure?: boolean;
-
-  /** Handler for the brand‑new “Submit Test Results” button */
   onSubmitTest?: () => void;
 }
 
@@ -29,7 +26,7 @@ export function HealthStatusArea({
   statuses,
   hideExposure,
   onSubmitTest,
-}: HealthStatusAreaProps) {
+}: Props) {
   const theme = useTheme();
 
   if (!stdis || stdis.length === 0) {
@@ -39,7 +36,7 @@ export function HealthStatusArea({
   return (
     <View style={{ width: '100%' }}>
       {stdis.map((stdi) => {
-        const status = (statuses || {})[stdi.id] || {};
+        const status = statuses?.[stdi.id] ?? {};
         const testResult =
           typeof status.testResult === 'boolean'
             ? status.testResult
@@ -52,7 +49,7 @@ export function HealthStatusArea({
             ? status.exposureStatus
               ? 'Exposed'
               : 'Not Exposed'
-            : 'Not Exposed';
+            : 'Not Exposed';
 
         const exposureDate = exposure === 'Exposed' ? status.exposureDate : null;
 
@@ -69,14 +66,13 @@ export function HealthStatusArea({
         );
       })}
 
-      {/* NEW: submit‑results button */}
       {onSubmitTest && (
         <View style={{ marginTop: 24, alignItems: 'center' }}>
           <ThemedButton
             title="Submit Test Results"
             variant="primary"
             onPress={onSubmitTest}
-            style={{ width: '80%' }}
+            style={{ width: '100%' }}
           />
         </View>
       )}

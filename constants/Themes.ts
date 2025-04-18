@@ -28,7 +28,8 @@ export const lightTheme = StyleSheet.create({
     fontWeight: typography.titleFontWeight,
     color: Colors.light.primary,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
+    marginTop: 10
   },
   bodyText: {
     fontSize: 16,
@@ -96,6 +97,8 @@ export const lightTheme = StyleSheet.create({
     backgroundColor: '#fff',
     padding: 20,
     borderRadius: 10,
+    maxHeight: '80%',
+    flexShrink: 1
   },
   modalTitle: {
     fontSize: 20,
@@ -239,6 +242,8 @@ export const darkTheme = StyleSheet.create({
     backgroundColor: '#222',
     padding: 20,
     borderRadius: 10,
+    maxHeight: '80%',
+    flexShrink: 1
   },
   modalTitle: {
     fontSize: 20,

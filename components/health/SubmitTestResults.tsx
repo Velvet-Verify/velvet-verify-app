@@ -231,11 +231,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   container: {
-    padding: 20,
+    padding: 10,
+    maxHeight: '100%'
   },
   title: {
-    // Minimal since we use theme.title for color/fonts
-    marginBottom: 10,
+    // marginBottom: 10,
   },
   label: {
     fontSize: 16,

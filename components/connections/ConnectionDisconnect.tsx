@@ -16,6 +16,7 @@ interface ConnectionDisconnectProps {
 
   /** Called when user finishes (Yes/No/Cancel) so we can close the sub-component. */
   onClose: () => void;
+  onCancel?: () => void;
 }
 
 export function ConnectionDisconnect({
@@ -23,6 +24,7 @@ export function ConnectionDisconnect({
   mySUUID,
   otherSUUID,
   onClose,
+  onCancel,
 }: ConnectionDisconnectProps) {
   const theme = useTheme();
   const { refreshConnections } = useConnections();
@@ -86,7 +88,12 @@ export function ConnectionDisconnect({
   }
 
   function handleCancel() {
-    onClose(); // do nothing special
+    // Prefer the dedicated cancel‑handler, fall back to onClose for safety
+    if (onCancel) {
+      onCancel();
+    } else {
+      onClose();
+    }
   }
 
   return (
