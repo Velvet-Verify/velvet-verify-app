@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
+  Platform,
   StyleSheet,
   ScrollView,
   Button,
@@ -10,6 +11,7 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from 'styled-components/native';
 import { ThemedModal } from '@/components/ui/ThemedModal';
 import { ProfileHeader } from '@/components/profile/ProfileHeader';
@@ -33,7 +35,7 @@ function actionLabelForLevel(level: number) {
   switch (level) {
     case 2: return 'Change Connection Type';
     case 3: return 'Change Connection Type';
-    case 4:
+    case 4: return 'Change Connection Type';
     case 5: return 'Change Connection Type';
     default: return '';
   }
@@ -55,6 +57,7 @@ export function ConnectionDetailsModal({
   visible, onClose, connection, isRecipient, mySUUID, stdis,
 }: Props) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const { refreshConnections } = useConnections();
   const { connectionLevels } = useLookups();
 
@@ -119,7 +122,7 @@ export function ConnectionDetailsModal({
         if (!baseSnap.exists()) return;
         const other = isRecipient ? baseSnap.data().senderSUUID : baseSnap.data().recipientSUUID;
         if (!other) return;
-        const hideDate = connection.connectionLevel === 2 || connection.connectionLevel === 3;
+        const hideDate = connection.connectionLevel < 5;
         const res = await getUserHealthStatusesCF({ suuid: other, hideDate });
         setRemoteStatuses(res.data?.statuses || {});
       } catch (err) { console.warn('health error', err); }
@@ -136,15 +139,27 @@ export function ConnectionDetailsModal({
         currentLevel: connection.connectionLevel,
         newLevel,
       });
-      Alert.alert('Success', 'Connection level updated.');
-      setViewMode('management');
+
+      const msg =
+        newLevel > connection.connectionLevel
+          ? 'Connection request sent.'
+          : 'Connection level updated.';
+
+      Alert.alert('Success', msg);
       refreshConnections();
+      onClose();
     } catch (err: any) { Alert.alert('Error', err.message || 'Could not update level.'); }
   }
 
   /* ---------- sub‑views ------------ */ 
   const ResultsView = () => {
     const label = actionLabelForLevel(connection.connectionLevel);
+    const BASE_GAP   = Platform.OS === 'ios' ? 0 : 56;
+    const bottomGap  = insets.bottom + BASE_GAP;
+  
+    /* --- NEW: did I send a pending‑elevation request? --- */
+    const iSentPendingRequest =
+      !!connection.pendingDocId && connection.pendingSenderSUUID === mySUUID;
   
     return (
       <View style={styles.flexOne}>
@@ -162,27 +177,64 @@ export function ConnectionDetailsModal({
           <ScrollView
             style={styles.flexOne}
             showsVerticalScrollIndicator
-            contentContainerStyle={{
-              // paddingBottom: 25
-            }}
+            contentContainerStyle={{ paddingBottom: bottomGap + 46 }}
           >
             <HealthStatusArea stdis={stdis} statuses={remoteStatuses} />
           </ScrollView>
         )}
   
-        {/* pinned action button – now inside card with safe margin */}
-        {label && (
+        {/* ---------- bottom button ---------- */}
+        {iSentPendingRequest ? (
           <ThemedButton
-            title={label}
+            title="Cancel Elevation Request"
             variant="primary"
-            onPress={() => setViewMode('changeLevel')}
+            onPress={() =>
+              Alert.alert(
+                'Cancel Request?',
+                'Are you sure you want to cancel this elevation request?',
+                [
+                  { text: 'No' },
+                  {
+                    text: 'Yes',
+                    style: 'destructive',
+                    onPress: async () => {
+                      try {
+                        await updateConnectionStatusCF({
+                          docId: connection.pendingDocId,
+                          newStatus: 5,      // 5 = cancelled
+                        });
+                        refreshConnections();
+                        onClose();
+                        Alert.alert('Request Cancelled');
+                      } catch (err: any) {
+                        Alert.alert('Error', err.message || 'Could not cancel.');
+                      }
+                    },
+                  },
+                ],
+              )
+            }
             style={{
               alignSelf: 'center',
               marginTop: 12,
-              marginBottom: 32,
-              width: '100%'
+              marginBottom: bottomGap,
+              width: '100%',
             }}
           />
+        ) : (
+          label && (
+            <ThemedButton
+              title={label}
+              variant="primary"
+              onPress={() => setViewMode('changeLevel')}
+              style={{
+                alignSelf: 'center',
+                marginTop: 12,
+                marginBottom: bottomGap,
+                width: '100%',
+              }}
+            />
+          )
         )}
       </View>
     );
@@ -276,7 +328,7 @@ export function ConnectionDetailsModal({
                     ? connection.recipientSUUID
                     : connection.senderSUUID
                 }
-                onClose={() => setViewMode('management')}
+                onClose={onClose}
               />
             </ScrollView>
           )}

@@ -89,7 +89,7 @@ export function ConnectionLevelChange({
         opt.kind === 'level' ? (
           <View key={idx} style={{ marginVertical: 5, width: '100%' }}>
             <ThemedButton
-              title={`Switch to ${getLevelName(opt.level)}`}
+              title={`Convert to ${getLevelName(opt.level)}`}
               variant="primary"
               onPress={() => handleSelectLevel(opt.level)}
             />

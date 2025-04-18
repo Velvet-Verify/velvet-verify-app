@@ -1,95 +1,81 @@
-import React from "react";
-import { View, Text, Image, StyleSheet } from "react-native";
-import { useTheme } from "styled-components/native";
-import { Timestamp } from "firebase/firestore";
+// components/connections/ConnectionItem.tsx
+import React from 'react';
+import { View, Text, Image, StyleSheet } from 'react-native';
+import { useTheme } from 'styled-components/native';
+import { Timestamp } from 'firebase/firestore';
 
+/* ------------- types ------------- */
 export interface Connection {
   displayName: string | null;
   imageUrl: string | null;
-  createdAt: any; 
-  updatedAt?: any; 
-  expiresAt?: any; 
+  createdAt: any;
+  updatedAt?: any;
   connectionLevel: number;
-  connectionStatus: number; 
+  connectionStatus: number; // 0=pending, 1=active
+
   senderSUUID: string;
   recipientSUUID: string;
 
-  // Merged doc fields:
+  /* merged‑doc extras (for pending‑elevation) */
   pendingDocId?: string;
   pendingSenderSUUID?: string;
   pendingRecipientSUUID?: string;
   pendingLevelName?: string;
   pendingLevelId?: number;
-
-  hasPendingExposure?: boolean;
-  /**
-   * - "theyRequested" => doc with (sender=other, recipient=me, status=0)
-   * - "iRequested" => doc with (sender=me, recipient=other, status=0)
-   * - "both" => both directions
-   */
-  exposureAlertType?: "iRequested" | "theyRequested" | "both";
 }
 
-interface ConnectionItemProps {
-  connection: Connection;
+interface Props {
+  connection: Connection;  // actually DisplayConnection from the screen
   mySUUID?: string;
 }
 
-export function ConnectionItem({ connection, mySUUID }: ConnectionItemProps) {
+/* ------------- component ---------- */
+export function ConnectionItem({ connection, mySUUID }: Props) {
   const theme = useTheme();
-  const displayName = connection.displayName || "Unknown";
+  const displayName = connection.displayName || 'Unknown';
 
+  /* helper: build a nice date string */
   function formatDisplayDate(val: any): string | null {
     if (!val) return null;
-    let dateObj: Date | null = null;
-    if (val instanceof Timestamp) {
-      dateObj = val.toDate();
-    } else if (typeof val === "object" && typeof val.seconds === "number") {
-      dateObj = new Date(val.seconds * 1000);
-    } else if (typeof val === "string") {
+    let d: Date | null = null;
+
+    if (val instanceof Timestamp) d = val.toDate();
+    else if (typeof val === 'object' && typeof val.seconds === 'number')
+      d = new Date(val.seconds * 1000);
+    else if (typeof val === 'string') {
       const parsed = new Date(val);
-      if (!isNaN(parsed.getTime())) {
-        dateObj = parsed;
-      }
+      if (!isNaN(parsed.getTime())) d = parsed;
     }
-    if (!dateObj) return null;
-    return dateObj.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+
+    if (!d) return null;
+    return d.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
     });
   }
-  const displayDate = formatDisplayDate(connection.updatedAt);
 
-  /** If item requires my action => "Awaiting your response" */
-  function requiresAction() {
-    // If exposure => "theyRequested" or "both" => I'm the recipient
-    if (
-      connection.exposureAlertType === "theyRequested" ||
-      connection.exposureAlertType === "both"
-    ) {
-      return true;
-    }
-    // If purely pending connection doc => check if I'm the recipient
-    if (
-      connection.connectionStatus === 0 &&
-      connection.recipientSUUID === mySUUID
-    ) {
-      return true;
-    }
-    return false;
-  }
+  /* -------- secondary line logic -------- */
+  let subtitle: string | null = null;
 
-  let secondLine: string | null = null;
-  if (requiresAction()) {
-    secondLine = "Awaiting your response";
-  } else {
-    // If active, maybe show the last updated date
-    if (connection.connectionStatus === 1 && displayDate) {
-      secondLine = displayDate;
+  // Case 1: I'm the recipient of a pending‑elevation request
+  if (connection.pendingDocId) {
+    if (connection.pendingRecipientSUUID === mySUUID) {
+      subtitle = 'Pending Request';                 // they’re waiting on me
+    } else if (connection.pendingSenderSUUID === mySUUID) {
+      subtitle = 'Elevation Request Sent';          // I’m waiting on them
     }
   }
+  // Case 2: regular active connection → show last‑updated date
+  else if (
+    connection.connectionStatus === 1 &&
+    connection.updatedAt
+  ) {
+    subtitle = formatDisplayDate(connection.updatedAt);
+  }
+  // otherwise leave subtitle null
 
+  /* -------- render -------- */
   return (
     <View style={styles.container}>
       {connection.imageUrl ? (
@@ -101,21 +87,19 @@ export function ConnectionItem({ connection, mySUUID }: ConnectionItemProps) {
       <View style={styles.infoContainer}>
         <Text style={[theme.bodyText, styles.topLine]}>{displayName}</Text>
 
-        {secondLine && (
-          <Text style={[theme.bodyText, styles.secondaryLine]}>
-            {secondLine}
-          </Text>
+        {subtitle && (
+          <Text style={[theme.bodyText, styles.secondaryLine]}>{subtitle}</Text>
         )}
       </View>
     </View>
   );
 }
 
-// styles
+/* ------------- styles ------------- */
 const styles = StyleSheet.create({
   container: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     marginVertical: 8,
   },
   avatar: {
@@ -129,13 +113,13 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 25,
     marginRight: 10,
-    backgroundColor: "#ccc",
+    backgroundColor: '#ccc',
   },
   infoContainer: {
     flex: 1,
   },
   topLine: {
-    fontWeight: "bold",
+    fontWeight: 'bold',
     marginBottom: 2,
   },
   secondaryLine: {

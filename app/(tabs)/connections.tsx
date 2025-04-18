@@ -17,7 +17,6 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 import { firebaseApp } from "@/src/firebase/config";
 import {
   getFirestore,
-  collection,
   query,
   where,
   getDocs,
@@ -48,9 +47,6 @@ interface DisplayConnection extends Connection {
   pendingRecipientSUUID?: string;
   pendingLevelName?: string;
   pendingLevelId?: number;
-
-  hasPendingExposure?: boolean;
-  exposureAlertType?: "iRequested" | "theyRequested" | "both";
 }
 
 export default function ConnectionsScreen() {
@@ -224,10 +220,6 @@ export default function ConnectionsScreen() {
     }
     return result;
   }, [connections, connectionLevels]);
-
-  // 4) We used to check "exposureAlertType" or request logic here. 
-  // If removing that, you can strip out this entire effect, 
-  // or keep if there's some leftover "pending" logic to show the user.
 
   /**
    * If doc is pending (status=0) and I'm the recipient => I must accept/reject.
