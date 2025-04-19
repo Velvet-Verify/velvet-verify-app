@@ -1,86 +1,120 @@
 // components/ui/NewConnection.tsx
-import React, { useState } from 'react';
-import { View, Text, TextInput, Alert } from 'react-native';
-import { useTheme } from 'styled-components/native';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { ThemedModal } from '@/components/ui/ThemedModal';
-import { ThemedButton } from '@/components/ui/ThemedButton';
+import React, { useState } from "react";
+import { View, Text, TextInput, Alert } from "react-native";
+import { useTheme } from "styled-components/native";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { firebaseApp } from "@/src/firebase/config";
+import { ThemedModal } from "@/components/ui/ThemedModal";
+import { ThemedButton } from "@/components/ui/ThemedButton";
 
-type NewConnectionProps = {
+type Props = {
   visible: boolean;
   onClose: () => void;
 };
 
-export function NewConnection({ visible, onClose }: NewConnectionProps) {
+export function NewConnection({ visible, onClose }: Props) {
   const theme = useTheme();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState("");
   const [requestSent, setRequestSent] = useState(false);
-  const functionsInstance = getFunctions();
-  const newConnectionCF = httpsCallable(functionsInstance, 'newConnection');
+  const [loading, setLoading] = useState(false);
 
-  // Helper to validate email format
-  const validateEmail = (email: string) => {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return re.test(email);
-  };
+  const newConnectionCF = httpsCallable(
+    getFunctions(firebaseApp),
+    "newConnection"
+  );
 
-  const handleConnect = async () => {
+  const validateEmail = (em: string) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em.trim());
+
+  /* ------------------------ main submit ------------------------ */
+  const sendRequest = async (overrideBlock = false) => {
     if (!email || !validateEmail(email)) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address.');
+      Alert.alert("Invalid Email", "Please enter a valid email address.");
       return;
     }
 
     try {
-      // Call the newConnection cloud function with the provided email.
-      await newConnectionCF({ email });
-      // Regardless of the outcome (even if no matching user was found or a duplicate exists),
-      // update the UI to show that the request was sent.
+      setLoading(true);
+      await newConnectionCF({ email: email.trim(), overrideBlock });
       setRequestSent(true);
-    } catch (error: any) {
-      console.error('Error initiating connection request:', error);
-      Alert.alert('Error', error.message || 'An error occurred while sending the request.');
-      onClose();
+    } catch (err: any) {
+      const code = err?.code;
+      const msg  = err?.message;
+
+      // Cloud Function threw blocked‑by‑sender
+      if (
+        code === "functions/failed-precondition" &&
+        msg === "blocked-by-sender"
+      ) {
+        Alert.alert(
+          "Blocked user",
+          "You have blocked this user. Unblock and send a new connection request?",
+          [
+            { text: "No", style: "cancel" },
+            { text: "Yes", onPress: () => sendRequest(true) },
+          ]
+        );
+        return;
+      }
+
+      Alert.alert("Error", msg ?? "Something went wrong.");
+      handleClose();
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Reset view when modal is reopened
-  const handleModalClose = () => {
-    setEmail('');
+  /* ------------------------ helpers ---------------------------- */
+  const handleClose = () => {
+    setEmail("");
     setRequestSent(false);
     onClose();
   };
 
+  /* ------------------------ UI -------------------------------- */
   return (
-    <ThemedModal visible={visible} onRequestClose={handleModalClose} useBlur>
+    <ThemedModal visible={visible} onRequestClose={handleClose} useBlur>
       {!requestSent ? (
         <>
           <Text style={theme.modalTitle}>New Connection Request</Text>
+
           <TextInput
             style={theme.input}
-            placeholder="Find user by email"
+            placeholder="user@example.com"
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
           />
+
           <View style={theme.buttonRow}>
-            <ThemedButton title="Cancel" variant="secondary" onPress={handleModalClose} />
-            <ThemedButton title="Connect" variant="primary" onPress={handleConnect} />
+            <ThemedButton
+              title="Cancel"
+              variant="secondary"
+              onPress={handleClose}
+            />
+            <ThemedButton
+              title={loading ? "Sending…" : "Connect"}
+              variant="primary"
+              disabled={loading}
+              onPress={() => sendRequest()}
+            />
           </View>
         </>
       ) : (
         <>
           <Text style={theme.modalTitle}>Request Sent</Text>
           <Text style={theme.bodyText}>
-            If a user with that email exists, your connection request has been sent.
+            If a user with that email exists, your connection request has been
+            sent.
           </Text>
+
           <View style={theme.buttonRow}>
-            <ThemedButton title="New Connection" variant="primary" onPress={() => {
-              // Reset the view for another connection attempt
-              setEmail('');
-              setRequestSent(false);
-            }} />
-            <ThemedButton title="Close" variant="secondary" onPress={handleModalClose} />
+            <ThemedButton
+              title="Close"
+              variant="primary"
+              onPress={handleClose}
+            />
           </View>
         </>
       )}

@@ -275,17 +275,36 @@ export function ConnectionDetailsModal({
               <View style={styles.buttonRow}>
                 <Button
                   title="Reject"
-                  onPress={() =>
-                    updateConnectionStatusCF({ docId: connection.connectionDocId, newStatus: 2 })
-                  }
                   color={theme.buttonSecondary.backgroundColor}
+                  onPress={async () => {
+                    try {
+                      await updateConnectionStatusCF({
+                        docId: connection.connectionDocId,
+                        newStatus: 2,   // rejected
+                      });
+                      refreshConnections();          // pull new data
+                      onClose();                     // close modal
+                    } catch (err: any) {
+                      Alert.alert("Error", err.message ?? "Could not reject request.");
+                    }
+                  }}
                 />
+
                 <Button
                   title="Accept"
-                  onPress={() =>
-                    updateConnectionStatusCF({ docId: connection.connectionDocId, newStatus: 1 })
-                  }
                   color={theme.buttonPrimary.backgroundColor}
+                  onPress={async () => {
+                    try {
+                      await updateConnectionStatusCF({
+                        docId: connection.connectionDocId,
+                        newStatus: 1,   // accepted
+                      });
+                      refreshConnections();
+                      onClose();
+                    } catch (err: any) {
+                      Alert.alert("Error", err.message ?? "Could not accept request.");
+                    }
+                  }}
                 />
               </View>
             </View>
@@ -322,12 +341,7 @@ export function ConnectionDetailsModal({
             <ScrollView style={styles.flexOne} contentContainerStyle={{ paddingBottom: 20 }}>
               <ConnectionDisconnect
                 baseDocId={connection.connectionDocId!}
-                mySUUID={mySUUID!}
-                otherSUUID={
-                  mySUUID === connection.senderSUUID
-                    ? connection.recipientSUUID
-                    : connection.senderSUUID
-                }
+                currentLevel={connection.connectionLevel}
                 onClose={onClose}
               />
             </ScrollView>

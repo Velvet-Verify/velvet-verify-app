@@ -68,7 +68,7 @@ export function ConnectionItem({ connection, mySUUID }: Props) {
   }
   // Case 2: regular active connection → show last‑updated date
   else if (
-    connection.connectionStatus === 1 &&
+    connection.connectionStatus <= 1 &&
     connection.updatedAt
   ) {
     subtitle = formatDisplayDate(connection.updatedAt);
