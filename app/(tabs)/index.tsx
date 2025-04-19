@@ -8,6 +8,7 @@ import {
   Alert,
   ScrollView,
   Platform,
+  RefreshControl
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -34,7 +35,7 @@ export default function HomeScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();          // <-- real tab‑bar height
+  const tabBarHeight = useBottomTabBarHeight();
   const storage = getStorage(firebaseApp);
 
   /* ----------------------------- local state ----------------------------- */
@@ -43,6 +44,7 @@ export default function HomeScreen() {
   const [healthStatuses, setHealthStatuses] = useState<{ [key: string]: any } | null>(null);
   const isIOS = Platform.OS === 'ios';
   const buttonPaddingBottom = insets.bottom + (isIOS ? 25 : 0);
+  const [refreshing, setRefreshing] = useState(false);
 
   /* ------------------------------ modals --------------------------------- */
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
@@ -95,6 +97,12 @@ export default function HomeScreen() {
   }
 
   /* ---------------------------- event handlers --------------------------- */
+  async function handlePullRefresh() {
+    setRefreshing(true);
+    await refreshHealthStatuses();
+    setRefreshing(false);
+  }
+  
   const handleLogout = async () => {
     try {
       await logout();
@@ -174,6 +182,13 @@ export default function HomeScreen() {
         <ScrollView
           style={{ flex: 1 }}
           showsVerticalScrollIndicator
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handlePullRefresh}
+              tintColor={theme.buttonPrimary.backgroundColor}
+            />
+          }
         >
           <HealthStatusArea stdis={stdis} statuses={healthStatuses} />
         </ScrollView>
