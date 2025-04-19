@@ -140,7 +140,7 @@ export default function HomeScreen() {
         }
       }
 
-      await updateDoc(doc(db, 'publiheightcProfile', psuuid), {
+      await updateDoc(doc(db, 'publicProfile', psuuid), {
         displayName: updatedName,
         imageUrl: finalPhoto,
       });
