@@ -124,22 +124,102 @@ export const submitTestResults = onCall(
 /* ------------------------------------------------------------------ */
 
 /**
- * Propagates newly‑negative results to bonded partners.
+ * Firestore record stored in `healthStatus/{HSUUID}_{STDI}` for a user.
+ * Only the fields we care about inside `inheritNegativesForBondedPartners`
+ * are typed here.
+ */
+interface PartnerHealthDoc {
+  testResult?: boolean;
+  testDate?: admin.firestore.Timestamp | { seconds: number } | string;
+}
+
+/**
+ * Propagates a caller’s newly‑negative STI results to every **bonded**
+ * partner (connectionLevel 5) -but **only** when the partner already has
+ * a negative record for that STDI and the caller’s new testDate is more
+ * recent.
  *
- * @param {string} _suuid  caller’s SUUID
- * @param {STDIResult[]} _neg  list of negative results
- * @param {admin.firestore.FieldValue} _ts  server timestamp
- * @return {Promise<void>}
+ * @param {string}  callerSUUID      The caller’s standard SUUID (used to
+ *                                   look up level‑5 connections).
+ * @param {STDIResult[]} negatives   Array of the caller’s negative results
+ *                                   for this submission.
+ * @param {admin.firestore.FieldValue} ts  Firestore server timestamp to
+ *                                   write into updated partner docs.
+ * @return {Promise<void>}           Resolves once any qualifying partner
+ *                                   records are patched.
  */
 async function inheritNegativesForBondedPartners(
-  _suuid: string,
-  _neg: STDIResult[],
-  _ts: admin.firestore.FieldValue,
+  callerSUUID: string,
+  negatives: STDIResult[],
+  ts: admin.firestore.FieldValue,
 ): Promise<void> {
-  /* TODO: implement bonded‑partner inheritance */
-  void _suuid;
-  void _neg;
-  void _ts;
+  if (negatives.length === 0) return;
+
+  /* 1️⃣  gather level‑5 partners */
+  const partners = new Set<string>();
+  const [snapOut, snapIn] = await Promise.all([
+    db
+      .collection("connections")
+      .where("senderSUUID", "==", callerSUUID)
+      .where("connectionStatus", "==", 1)
+      .where("connectionLevel", "==", 5)
+      .get(),
+    db
+      .collection("connections")
+      .where("recipientSUUID", "==", callerSUUID)
+      .where("connectionStatus", "==", 1)
+      .where("connectionLevel", "==", 5)
+      .get(),
+  ]);
+  snapOut.forEach((d) => partners.add(d.get("recipientSUUID")));
+  snapIn.forEach((d) => partners.add(d.get("senderSUUID")));
+  if (partners.size === 0) return;
+
+  /* 2️⃣  hash cache for each partner */
+  const hCache = new Map<string, string>();
+  await Promise.all(
+    Array.from(partners).map(async (suid) =>
+      hCache.set(suid, await computeHash("health", "", suid)),
+    ),
+  );
+
+  /* 3️⃣  conditional updates */
+  const batch = db.batch();
+  let wrote = false;
+
+  for (const suid of partners) {
+    const hsuuid = hCache.get(suid);
+    if (!hsuuid) continue;
+
+    for (const {stdiId, testDate} of negatives) {
+      const ref = db.collection("healthStatus").doc(`${hsuuid}_${stdiId}`);
+      const snap = await ref.get();
+      if (!snap.exists) continue;
+
+      const data = snap.data() as PartnerHealthDoc;
+      if (data.testResult !== false || !data.testDate) continue;
+
+      /* previous test date → millis */
+      const prevMillis =
+        data.testDate instanceof admin.firestore.Timestamp ?
+          data.testDate.toMillis() :
+          typeof data.testDate === "object" && "seconds" in data.testDate ?
+            data.testDate.seconds * 1000 :
+            new Date(data.testDate).getTime();
+
+      const newMillis = new Date(testDate).getTime();
+      if (isNaN(prevMillis) || prevMillis >= newMillis) continue;
+
+      batch.set(
+        ref,
+        {testDate: new Date(testDate), updatedAt: ts},
+        {merge: true},
+      );
+      wrote = true;
+    }
+  }
+
+  if (wrote) await batch.commit();
 }
 
 /**
