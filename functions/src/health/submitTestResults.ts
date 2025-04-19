@@ -82,8 +82,10 @@ export const submitTestResults = onCall(
     const esuuid = await computeHash("exposure", "", suuid);
 
     /* ---------- map of outcomes ---------- */
-    const tested = new Map<string, boolean>();
-    results.forEach((r) => tested.set(r.stdiId, r.result));
+    const tested = new Map<string, { result: boolean; testDate: string }>();
+    results.forEach((r) =>
+      tested.set(r.stdiId, {result: r.result, testDate: r.testDate}),
+    );
     const tsNow = admin.firestore.FieldValue.serverTimestamp();
 
     /* ---------- record each result ---------- */
@@ -141,60 +143,66 @@ async function inheritNegativesForBondedPartners(
 }
 
 /**
- * Updates exposure‑alert documents.
+ * Update exposure‑alert documents after the caller submits new
+ * test results.
  *
  * Behaviour
- * ---------
- * •  Positive  → mark any active alert “sent”        (status 2)
- * •  Negative  → mark any active alert “deactivated” (status 3)
- *               and create a fresh **active** alert  (status 1)
- *               for every level‑4 or level‑5 partner,
- *               using the partner’s ESUUID.
+ * • Positive – mark any active alert “sent”        (status 2)
+ * • Negative – mark any active alert “deactivated” (status 3)
+ *              and create a fresh active alert     (status 1)
+ *              for every level‑4/5 partner.
  *
- * @param {string} senderSUUID   caller’s standard SUUID
- * @param {string} senderESUUID  caller’s exposure  ESUUID
- * @param {Map<string, boolean>} testedMap   STDI → isPositive
- * @param {admin.firestore.FieldValue} ts    Firestore server timestamp
+ * @param {string} senderSUUID        Caller’s standard SUUID.
+ * @param {string} senderESUUID       Caller’s exposure ESUUID.
+ * @param {Map<string, Object>} testedMap  Map (STDI id → {
+ *                                          result:boolean,
+ *                                          testDate:string
+ *                                         }).
+ * @param {admin.firestore.FieldValue} ts  Firestore server timestamp.
  * @return {Promise<void>}
  */
 async function updateExposureAlerts(
   senderSUUID: string,
   senderESUUID: string,
-  testedMap: Map<string, boolean>,
+  testedMap: Map<string, { result: boolean; testDate: string }>,
   ts: admin.firestore.FieldValue,
 ): Promise<void> {
   if (testedMap.size === 0) return;
 
-  /* ---------- step 1 — update existing active alerts ---------- */
-  const ids = Array.from(testedMap.keys());
+  /* ---------- step 1: update any ACTIVE alerts ---------- */
+  const stdiIds = Array.from(testedMap.keys());
   const chunks: string[][] = [];
-  while (ids.length) chunks.push(ids.splice(0, 10));
+  while (stdiIds.length) chunks.push(stdiIds.splice(0, 10));
 
   const batch1 = db.batch();
-  for (const group of chunks) {
+  for (const ids of chunks) {
     const snap = await db
       .collection("exposureAlerts")
       .where("sender", "==", senderESUUID)
-      .where("status", "==", 1) // active
-      .where("STDI", "in", group)
+      .where("status", "==", 1)
+      .where("STDI", "in", ids)
       .get();
 
     snap.forEach((doc) => {
       const stdi = doc.get("STDI") as string;
-      const isPositive = testedMap.get(stdi) === true;
-      batch1.update(doc.ref, {status: isPositive ? 2 : 3, updatedAt: ts});
+      const info = testedMap.get(stdi);
+      if (!info) return;
+      batch1.update(doc.ref, {
+        status: info.result ? 2 : 3,
+        testDate: info.testDate,
+        updatedAt: ts,
+      });
     });
   }
   await batch1.commit();
 
-  /* ---------- step 2 — create fresh alerts for NEGATIVES ---------- */
+  /* ---------- step 2 : fresh alerts for NEGATIVES ---------- */
   const negatives = Array.from(testedMap.entries())
-    .filter(([, positive]) => !positive)
-    .map(([stdi]) => stdi);
-
+    .filter(([, v]) => v.result === false)
+    .map(([id]) => id);
   if (negatives.length === 0) return;
 
-  /* Gather every active level‑4/5 partner (SUUIDs) */
+  /* level‑4/5 partners (SUUIDs) */
   const partnerSUUIDs = new Set<string>();
   const [snapA, snapB] = await Promise.all([
     db
@@ -214,26 +222,25 @@ async function updateExposureAlerts(
   snapB.forEach((d) => partnerSUUIDs.add(d.get("senderSUUID")));
   if (partnerSUUIDs.size === 0) return;
 
-  /* Convert each partner SUUID → ESUUID (cached) */
+  /* translate SUUID → ESUUID (cached) */
   const esCache = new Map<string, string>();
   await Promise.all(
-    Array.from(partnerSUUIDs).map(async (suid) => {
-      const esuid = await computeHash("exposure", "", suid);
-      esCache.set(suid, esuid);
+    Array.from(partnerSUUIDs).map(async (s) => {
+      esCache.set(s, await computeHash("exposure", "", s));
     }),
   );
 
-  /* Write fresh alerts */
+  /* write fresh alerts */
   const batch2 = db.batch();
   partnerSUUIDs.forEach((suid) => {
-    const recipESUUID = esCache.get(suid);
-    if (!recipESUUID) return; // safety check
+    const recipES = esCache.get(suid);
+    if (!recipES) return;
     negatives.forEach((stdi) => {
       batch2.set(db.collection("exposureAlerts").doc(), {
         sender: senderESUUID,
-        recipient: recipESUUID,
+        recipient: recipES,
         STDI: stdi,
-        status: 1, // active
+        status: 1,
         createdAt: ts,
         updatedAt: ts,
       });
