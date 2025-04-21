@@ -2,7 +2,15 @@
 import React, { useState } from 'react';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { getFirestore, doc, setDoc } from 'firebase/firestore';
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  collection,
+  getDocs,
+  writeBatch,
+  serverTimestamp,
+} from 'firebase/firestore';
 import {
   getStorage,
   ref,
@@ -24,27 +32,37 @@ export default function ProfileSetup() {
   const functionsInstance = getFunctions(firebaseApp);
   const computeHashedIdCF = httpsCallable(functionsInstance, 'computeHashedId');
 
-  // Two separate modals, each controlled by its own state:
+  /* ------------------------------------------------------------------ */
+  /* modal state                                                         */
+  /* ------------------------------------------------------------------ */
   const [editModalVisible, setEditModalVisible] = useState(true);
   const [membershipModalVisible, setMembershipModalVisible] = useState(false);
 
-  // 1) Called when user taps "Save" in the EditProfileModal
+  /* ------------------------------------------------------------------ */
+  /* Step 1 – save profile                                               */
+  /* ------------------------------------------------------------------ */
   const handleSaveProfile = async (displayName: string, photoUri: string) => {
     if (!displayName) {
       Alert.alert('Error', 'Please enter a valid display name.');
       return;
     }
     if (!user) {
-      Alert.alert('Error', 'No user found. Please log in again.');
+      Alert.alert('Error', 'No user session found. Please log in again.');
       return;
     }
 
     try {
-      // Compute the unique profile hash
-      const result = await computeHashedIdCF({ hashType: 'profile' });
-      const psuuid = result.data.hashedId;
+      /* ---------- hashes ---------- */
+      const { data: suuidData } = await computeHashedIdCF({ hashType: 'standard' });
+      const suuid = suuidData.hashedId as string;
 
-      // Attempt image upload (skip if no photoUri)
+      const { data: psData } = await computeHashedIdCF({ hashType: 'profile', inputSUUID: suuid });
+      const psuuid = psData.hashedId as string;
+
+      const { data: hsData } = await computeHashedIdCF({ hashType: 'health', inputSUUID: suuid });
+      const hsuuid = hsData.hashedId as string;
+
+      /* ---------- optional avatar ---------- */
       let imageUrl = '';
       if (photoUri) {
         try {
@@ -53,17 +71,13 @@ export default function ProfileSetup() {
           const storageRef = ref(storage, `profileImages/${psuuid}.jpg`);
           await uploadBytes(storageRef, blob);
           imageUrl = await getDownloadURL(storageRef);
-        } catch (err: any) {
+        } catch (err) {
           console.warn('Image upload failed:', err);
-          Alert.alert(
-            'Image Upload Error',
-            'Could not upload the profile image, continuing without it...'
-          );
-          // We do NOT return here, so we can still proceed to membership
+          Alert.alert('Image Upload Error', 'Could not upload the profile image. Continuing without it.');
         }
       }
 
-      // Write publicProfile doc
+      /* ---------- write public profile ---------- */
       await setDoc(doc(db, 'publicProfile', psuuid), {
         PSUUID: psuuid,
         displayName,
@@ -71,36 +85,55 @@ export default function ProfileSetup() {
         createdAt: new Date().toISOString(),
       });
 
-      // Close the EditProfileModal
+      /* ---------- seed baseline healthStatus ---------- */
+      const stdiSnap = await getDocs(collection(db, 'STDI'));
+      const batch = writeBatch(db);
+      const now = serverTimestamp();
+
+      stdiSnap.forEach((d) => {
+        batch.set(
+          doc(db, 'healthStatus', `${hsuuid}_${d.id}`),
+          {
+            stdiId: d.id,
+            healthStatus: 0,    // 0 = Not Tested
+            statusDate: now,
+            createdAt: now,
+          },
+          { merge: true },
+        );
+      });
+      await batch.commit();
+
+      /* ---------- advance flow ---------- */
       setEditModalVisible(false);
-
-      // Show membership selection next
       setMembershipModalVisible(true);
-
     } catch (error: any) {
-      console.error('Error creating public profile:', error);
-      Alert.alert('Error', error.message);
+      console.error('Error during profile setup:', error);
+      Alert.alert('Error', error.message ?? 'Unknown error');
     }
   };
 
-  // 2) If user cancels out of Profile Setup, we STILL want membership selection
+  /* ------------------------------------------------------------------ */
+  /* Step 2 – cancel profile → membership                                */
+  /* ------------------------------------------------------------------ */
   const handleCancelProfile = () => {
-    // Close the EditProfileModal
     setEditModalVisible(false);
-
-    // Force membership selection
     setMembershipModalVisible(true);
   };
 
-  // 3) Once membership is chosen (or canceled) in that modal, we proceed to home
+  /* ------------------------------------------------------------------ */
+  /* Step 3 – finish onboarding                                          */
+  /* ------------------------------------------------------------------ */
   const handleMembershipDone = () => {
     setMembershipModalVisible(false);
     router.replace('/');
   };
 
+  /* ------------------------------------------------------------------ */
+  /* render                                                              */
+  /* ------------------------------------------------------------------ */
   return (
     <>
-      {/* Step 1: show EditProfileModal for name & photo */}
       <EditProfileModal
         visible={editModalVisible}
         initialDisplayName=""
@@ -108,10 +141,9 @@ export default function ProfileSetup() {
         onSave={handleSaveProfile}
         onCancel={handleCancelProfile}
         title="Profile Setup"
-        showCancel={true}
+        showCancel
       />
 
-      {/* Step 2: membership selection shown after doc is created (or user cancels profile) */}
       <MembershipSelectionModal
         visible={membershipModalVisible}
         onClose={handleMembershipDone}

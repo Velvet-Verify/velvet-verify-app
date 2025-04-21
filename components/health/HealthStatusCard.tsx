@@ -1,143 +1,110 @@
-// components/ui/HealthStatusCard.tsx
+// components/health/HealthStatusCard.tsx
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
 import { ResultIcon, ResultType } from '../ui/ResultIcon';
 
-type HealthStatusCardProps = {
-  name: string;         // Full display name for the STDI
-  testResult: string;   // "Positive", "Negative", or "Not Tested"
-  testDate: any;        // Firestore Timestamp, Date, or null
-  exposure: string;     // "Exposed" or "Not Exposed"
-  exposureDate: any;    // Firestore Timestamp, Date, or null
-  windowPeriodMax: number;  // Number of days to add to exposureDate
+type Props = {
+  name: string;
+  /** 'Exposed' is now treated as its own result */
+  testResult: 'Positive' | 'Negative' | 'Exposed' | 'Not Tested';
+  /** Real date, Firestore Timestamp, or masked string (“Last 90 Days”, …) */
+  statusDate: any;
+  /** Max window‑period in days for this STDI (needed to show “test after …”) */
+  windowPeriodMax: number;
 };
 
-function formatDate(dateValue: any): string {
-  // If the CF has already masked the date to something like "Last 90 Days" etc.
-  // we can detect that quickly:
-  if (typeof dateValue === "string") {
-    // If it's one of your known masked strings, just return it directly
-    const maskedOptions = [
-      "Last 90 Days",
-      "Last 180 Days",
-      "Last Year",
-      "Over 1 Year",
-    ];
-    if (maskedOptions.includes(dateValue)) {
-      return dateValue;
-    }
-    // If it's not one of those strings, maybe we still try parse it or handle it below
-    // or just return dateValue
-    // return dateValue; 
-  }
+const MASKED = ['Last 90 Days', 'Last 180 Days', 'Last Year', 'Over 1 Year'];
 
-  if (!dateValue) return "N/A";
-  if (typeof dateValue === "object" && dateValue.seconds !== undefined) {
-    return new Date(dateValue.seconds * 1000).toLocaleDateString();
+function formatDate(val: any): string {
+  if (!val) return 'N/A';
+  if (typeof val === 'string') {
+    if (MASKED.includes(val.replace(/\u00A0/g, ' '))) return val.replace(/\u00A0/g, ' ');
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
   }
-  if (typeof dateValue.toDate === "function") {
-    return dateValue.toDate().toLocaleDateString();
-  }
-  const dateObj = new Date(dateValue);
-  return isNaN(dateObj.getTime()) ? "N/A" : dateObj.toLocaleDateString();
+  if (val?.seconds !== undefined) return new Date(val.seconds * 1000).toLocaleDateString();
+  if (typeof val.toDate === 'function') return val.toDate().toLocaleDateString();
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
 }
 
-function computeTestAfterDate(exposureDate: any, windowPeriodMax: number): string {
-  let dateObj: Date;
-  if (typeof exposureDate === 'object' && exposureDate.seconds !== undefined) {
-    dateObj = new Date(exposureDate.seconds * 1000);
-  } else if (typeof exposureDate.toDate === 'function') {
-    dateObj = exposureDate.toDate();
-  } else {
-    dateObj = new Date(exposureDate);
-  }
-  // Clone the date to avoid mutating the original.
-  const testAfterDate = new Date(dateObj);
-  testAfterDate.setDate(testAfterDate.getDate() + windowPeriodMax);
-  const formattedDate = testAfterDate.toLocaleDateString();
-  return formattedDate;
+function addDays(base: Date, days: number): string {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString();
 }
 
 export function HealthStatusCard({
   name,
   testResult,
-  testDate,
-  exposure,
-  exposureDate,
+  statusDate,
   windowPeriodMax,
-}: HealthStatusCardProps) {
+}: Props) {
   const theme = useTheme();
 
-  const baseResult: ResultType =
-    testResult.toLowerCase() === 'positive'
+  const base: ResultType =
+    testResult === 'Positive'
       ? 'positive'
-      : testResult.toLowerCase() === 'negative'
+      : testResult === 'Negative'
       ? 'negative'
       : 'notTested';
 
-  const caution =
-    exposure.toLowerCase() === 'exposed' && baseResult !== 'positive';
+  const isExposed = testResult === 'Exposed';
+  const caution   = isExposed && base !== 'positive';
+
+  /* ---- compute “test after …” for exposures ---- */
+  let testAfterStr: string | null = null;
+  if (isExposed && statusDate && windowPeriodMax > 0) {
+    let baseDate: Date | null = null;
+    if (statusDate?.seconds !== undefined) baseDate = new Date(statusDate.seconds * 1000);
+    else if (typeof statusDate.toDate === 'function') baseDate = statusDate.toDate();
+    else {
+      const d = new Date(statusDate);
+      if (!isNaN(d.getTime())) baseDate = d;
+    }
+    if (baseDate) testAfterStr = addDays(baseDate, windowPeriodMax);
+  }
 
   return (
     <View style={styles.card}>
-      {/* This is the row that holds our text block and the icon block */}
-      <View style={styles.rowContainer}>
-        <View style={styles.textContainer}>
+      <View style={styles.row}>
+        <View style={styles.textCol}>
           <Text style={[styles.name, { color: theme.title.color }]}>{name}</Text>
-          {baseResult !== 'notTested' && testDate && (
-            <Text style={styles.label}>
-              Test Date: {formatDate(testDate)}
-            </Text>
+
+          {/* ---- conditional labels ---- */}
+          {testResult === 'Not Tested' && (
+            <Text style={styles.label}>Test Date: Not Tested</Text>
           )}
-          {exposure.toLowerCase() === 'exposed' && exposureDate ? (
-            <Text style={styles.label}>
-              Exposed: Test After{' '}
-              {computeTestAfterDate(exposureDate, windowPeriodMax)}
-            </Text>
-          ) : null}
+
+          {(testResult === 'Negative' || testResult === 'Positive') && statusDate && (
+            <Text style={styles.label}>Last Tested: {formatDate(statusDate)}</Text>
+          )}
+
+          {testResult === 'Exposed' && statusDate && (
+            <Text style={styles.label}>Exposure Date: {formatDate(statusDate)}</Text>
+          )}
+
+          {testAfterStr && (
+            <Text style={styles.label}>Exposed - test after {testAfterStr}</Text>
+          )}
         </View>
 
-        <View style={styles.iconContainer}>
-          <ResultIcon
-            result={baseResult}
-            active={true}
-            caution={caution}
-            onPress={() => {}}
-          />
-        </View>
+        <ResultIcon result={base} active caution={caution} onPress={() => {}} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    // paddingVertical: 5,
-    // marginVertical: 4,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-    marginRight: 10,
-  },
-  rowContainer: {
+  card: { borderBottomWidth: 1, borderColor: '#eee', marginRight: 10 },
+  row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center', 
+    alignItems: 'center',
     paddingVertical: 5,
   },
-  textContainer: {
-    flex: 1, 
-  },
-  iconContainer: {
-    paddingVertical: 5,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  label: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 2,
-  },
+  textCol: { flex: 1 },
+  name: { fontSize: 16, fontWeight: 'bold' },
+  label: { fontSize: 14, color: '#555', marginBottom: 2 },
 });

@@ -1,3 +1,4 @@
+// components/health/HealthStatusArea.tsx
 import React from 'react';
 import { View, Text } from 'react-native';
 import { useTheme } from 'styled-components/native';
@@ -7,69 +8,57 @@ import { ThemedButton } from '@/components/ui/ThemedButton';
 type STI = { id: string; name?: string; windowPeriodMax?: number };
 
 type HealthStatus = {
-  id: string;
-  testResult?: boolean;
-  testDate?: any;
-  exposureStatus?: boolean;
-  exposureDate?: any;
+  healthStatus?: number;          // 0–3 codes
+  statusDate?: any;               // string, Date, or Timestamp
 };
 
 interface Props {
   stdis: STI[];
+  /** keyed by STDI id */
   statuses: Record<string, HealthStatus> | null;
-  hideExposure?: boolean;
   onSubmitTest?: () => void;
 }
 
 export function HealthStatusArea({
   stdis,
   statuses,
-  hideExposure,
   onSubmitTest,
 }: Props) {
   const theme = useTheme();
 
-  if (!stdis || stdis.length === 0) {
+  if (!stdis?.length) {
     return <Text style={theme.bodyText}>No STDIs available.</Text>;
   }
 
   return (
     <View style={{ width: '100%' }}>
       {stdis.map((stdi) => {
-        const status = statuses?.[stdi.id] ?? {};
-        const testResult =
-          typeof status.testResult === 'boolean'
-            ? status.testResult
-              ? 'Positive'
-              : 'Negative'
-            : 'Not Tested';
+        const s = statuses?.[stdi.id] ?? {};
 
-        const exposure =
-          typeof status.exposureStatus === 'boolean'
-            ? status.exposureStatus
-              ? 'Exposed'
-              : 'Not Exposed'
-            : 'Not Exposed';
-
-        const exposureDate = exposure === 'Exposed' ? status.exposureDate : null;
+        /* map numeric code → string */
+        let testResult: 'Positive' | 'Negative' | 'Exposed' | 'Not Tested' = 'Not Tested';
+        switch (s.healthStatus) {
+          case 1: testResult = 'Negative'; break;
+          case 2: testResult = 'Exposed';  break;
+          case 3: testResult = 'Positive'; break;
+        }
 
         return (
           <HealthStatusCard
             key={stdi.id}
             name={stdi.name || stdi.id}
             testResult={testResult}
-            testDate={status.testDate ?? null}
-            exposure={hideExposure ? 'Hidden' : exposure}
-            exposureDate={hideExposure ? null : exposureDate}
+            statusDate={s.statusDate ?? null}
             windowPeriodMax={stdi.windowPeriodMax ?? 0}
           />
         );
       })}
 
+      {/* Submit button unchanged */}
       {onSubmitTest && (
         <View style={{ marginTop: 24, alignItems: 'center' }}>
           <ThemedButton
-            title="Submit Test Results"
+            title="Submit Test Results"
             variant="primary"
             onPress={onSubmitTest}
             style={{ width: '100%' }}
