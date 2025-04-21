@@ -67,7 +67,6 @@ export function ConnectionDetailsModal({
   const updateConnectionStatusCF = useMemo(() => httpsCallable(fns, 'updateConnectionStatus'), [fns]);
   const updateConnectionLevelCF  = useMemo(() => httpsCallable(fns, 'updateConnectionLevel' ), [fns]);
   const getUserHealthStatusesCF  = useMemo(() => httpsCallable(fns, 'getUserHealthStatuses'), [fns]);
-  const respondExposureAlertsCF  = useMemo(() => httpsCallable(fns, 'respondExposureAlerts'), [fns]);
 
   /* local state */
   const [viewMode, setViewMode] = useState<ViewMode>('results');
@@ -359,37 +358,6 @@ export function ConnectionDetailsModal({
             </ScrollView>
           )}
 
-          {viewMode === 'pendingExposure' && (
-            <View style={[theme.centerContainer, { padding: 20 }]}>
-              <Text style={[theme.bodyText, { fontWeight: 'bold', marginBottom: 8 }]}>
-                The other user has requested exposure alerts if you test positive.
-              </Text>
-              <View style={styles.buttonRow}>
-                <Button
-                  title="Decline"
-                  onPress={async () => {
-                    await respondExposureAlertsCF({
-                      connectionDocId: connection.connectionDocId,
-                      action: 'decline',
-                    });
-                    setViewMode('results');
-                  }}
-                  color={theme.buttonSecondary.backgroundColor}
-                />
-                <Button
-                  title="Accept"
-                  onPress={async () => {
-                    await respondExposureAlertsCF({
-                      connectionDocId: connection.connectionDocId,
-                      action: 'accept',
-                    });
-                    setViewMode('results');
-                  }}
-                  color={theme.buttonPrimary.backgroundColor}
-                />
-              </View>
-            </View>
-          )}
         </View>
       </View>
     </ThemedModal>
