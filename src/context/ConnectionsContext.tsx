@@ -8,6 +8,7 @@ export interface Connection {
   displayName: string | null;
   imageUrl: string | null;
   createdAt: string | null;
+  updatedAt: string | null;
   expiresAt: string | null;
   connectionLevel: number;
   connectionStatus: number;

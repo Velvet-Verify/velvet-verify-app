@@ -17,6 +17,7 @@ import { getFunctions, httpsCallable } from "firebase/functions";
 import { firebaseApp } from "@/src/firebase/config";
 import {
   getFirestore,
+  collection,
   query,
   where,
   getDocs,
@@ -72,7 +73,14 @@ export default function ConnectionsScreen() {
   const [forceRender, setForceRender] = useState(0);
 
   const functionsInstance = getFunctions(firebaseApp);
-  const computeHashedIdCF = httpsCallable(functionsInstance, "computeHashedId");
+  
+  interface ComputeHashedIdPayload { hashType: string; inputSUUID?: string }
+  interface ComputeHashedIdResp   { hashedId: string }
+  const computeHashedIdCF = httpsCallable<
+    ComputeHashedIdPayload,
+    ComputeHashedIdResp
+  >(functionsInstance, 'computeHashedId');
+
   const updateConnectionStatusCF = useMemo(
     () => httpsCallable(functionsInstance, "updateConnectionStatus"),
     [functionsInstance]
@@ -147,7 +155,7 @@ export default function ConnectionsScreen() {
     const [s1, s2] = pairKey.split("_");
     try {
       const qPending = query(
-        db.collection("connections"),
+        collection(db, 'connections'),
         where("connectionStatus", "==", 0),
         // pending doc for short-term => level in [2,3]
         where("connectionLevel", "in", [2, 3]),

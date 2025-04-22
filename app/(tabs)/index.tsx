@@ -55,9 +55,24 @@ export default function HomeScreen() {
 
   /* -------------------------- cloud functions --------------------------- */
   const functionsInstance = getFunctions(firebaseApp);
-  const computeHashedIdCF = httpsCallable(functionsInstance, 'computeHashedId');
+
+  interface ComputeHashedIdPayload { hashType: string; inputSUUID?: string }
+  interface ComputeHashedIdResp   { hashedId: string }
+  const computeHashedIdCF = httpsCallable<
+    ComputeHashedIdPayload,
+    ComputeHashedIdResp
+  >(functionsInstance, 'computeHashedId');
+
   const getPublicProfileCF = httpsCallable(functionsInstance, 'getPublicProfile');
-  const getUserHealthStatusesCF = httpsCallable(functionsInstance, 'getUserHealthStatuses');
+
+  interface HealthStatusesPayload {}
+  interface HealthStatusesResp {
+    statuses: Record<string, any>;
+  }
+  const getUserHealthStatusesCF = httpsCallable<
+    HealthStatusesPayload,
+    HealthStatusesResp
+  >(functionsInstance, 'getUserHealthStatuses');
 
   /* ---------------------- initial profile check/load --------------------- */
   useEffect(() => {
