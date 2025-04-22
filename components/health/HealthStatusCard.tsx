@@ -85,9 +85,9 @@ export function HealthStatusCard({
             <Text style={styles.label}>Exposure Date: {formatDate(statusDate)}</Text>
           )}
 
-          {testAfterStr && (
+          {/* {testAfterStr && (
             <Text style={styles.label}>Exposed - test after {testAfterStr}</Text>
-          )}
+          )} */}
         </View>
 
         <ResultIcon result={base} active caution={caution} onPress={() => {}} />
