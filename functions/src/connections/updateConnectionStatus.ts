@@ -7,7 +7,7 @@ import {
 } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 
-import {rollOverAlerts} from "../alerts";
+import {rollOverAlertsForElevation} from "../alerts";
 import {computeHash} from "../computeHashedId";
 
 if (!admin.apps.length) admin.initializeApp();
@@ -23,7 +23,7 @@ interface UpdateConnectionStatusData {
 const callableOptions: CallableOptions = {
   cors: "*",
   // hashes executed in this function:
-  secrets: ["STANDARD_HASH_KEY", "EXPOSURE_HASH_KEY"],
+  secrets: ["STANDARD_HASH_KEY", "EXPOSURE_HASH_KEY", "HEALTH_HASH_KEY"],
 };
 
 export const updateConnectionStatus = onCall(
@@ -63,18 +63,58 @@ export const updateConnectionStatus = onCall(
       if (!data.connectedAt) updateFields.connectedAt = now;
 
       if (data.connectionLevel >= 3) {
-        const senderESUUID = await computeHash(
-          "exposure",
-          "",
-          data.senderSUUID
+        const [senderES, recipES, senderHS, recipHS] = await Promise.all([
+          computeHash("exposure", "", data.senderSUUID),
+          computeHash("exposure", "", data.recipientSUUID),
+          computeHash("health", "", data.senderSUUID),
+          computeHash("health", "", data.recipientSUUID),
+        ]);
+
+        const senderInfo = {
+          suuid: data.senderSUUID,
+          esuuid: senderES,
+          hsuuid: senderHS,
+        };
+        const recipInfo = {
+          suuid: data.recipientSUUID,
+          esuuid: recipES,
+          hsuuid: recipHS,
+        };
+
+        const enteringFromLower = data.connectionLevel <= 3;
+        await rollOverAlertsForElevation(
+          senderInfo,
+          recipInfo,
+          enteringFromLower,
+          now
         );
-        const recipientESUUID = await computeHash(
-          "exposure",
-          "",
-          data.recipientSUUID
-        );
-        await rollOverAlerts(senderESUUID, recipientESUUID);
       }
+
+      const lowerActiveA = db
+        .collection("connections")
+        .where("senderSUUID", "==", data.senderSUUID)
+        .where("recipientSUUID", "==", data.recipientSUUID)
+        .where("connectionLevel", "<", data.connectionLevel)
+        .where("connectionStatus", "==", 1)
+        .get();
+
+      const lowerActiveB = db
+        .collection("connections")
+        .where("senderSUUID", "==", data.recipientSUUID)
+        .where("recipientSUUID", "==", data.senderSUUID)
+        .where("connectionLevel", "<", data.connectionLevel)
+        .where("connectionStatus", "==", 1)
+        .get();
+
+      const snapList = await Promise.all([lowerActiveA, lowerActiveB]);
+
+      const batch = db.batch();
+      snapList.forEach((s) =>
+        s.docs.forEach((d) =>
+          batch.update(d.ref, {connectionStatus: 4, updatedAt: now}),
+        ),
+      );
+      await batch.commit();
     }
 
     await connRef.update(updateFields);
