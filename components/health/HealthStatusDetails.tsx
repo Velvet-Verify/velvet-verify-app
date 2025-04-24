@@ -85,7 +85,7 @@ export default function HealthStatusDetails({ stdi, status, showFullDates, onClo
 }
 
 const styles = StyleSheet.create({
-  wrapper: { borderBottomWidth: 1, borderColor: '#eee', paddingVertical: 8, marginRight: 10 },
+  wrapper: { borderBottomWidth: 1, borderColor: '#eee', paddingVertical: 8 },
   description: { marginBottom: 8 },
   bold: { fontWeight: 'bold' },
   spacer: { height: 12 },
