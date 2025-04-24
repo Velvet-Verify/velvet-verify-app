@@ -1,15 +1,15 @@
 // components/health/HealthStatusArea.tsx
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { useTheme } from 'styled-components/native';
-import HealthStatusDetails from './HealthStatusDetails'
+import HealthStatusDetails from './HealthStatusDetails';
 import { HealthStatusCard } from './HealthStatusCard';
 import { ThemedButton } from '@/components/ui/ThemedButton';
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
 /* -------------------------------------------------------------------------- */
-type STI = {
+export type STI = {
   id: string;
   name?: string;
   description?: string;
@@ -17,48 +17,30 @@ type STI = {
   treatmentPeriodMin?: number;
 };
 
-type HealthStatus = {
+export type HealthStatus = {
   healthStatus?: number;
   statusDate?: any;
 };
 
 interface Props {
   stdis: STI[];
-  /** keyed by STDI id */
   statuses: Record<string, HealthStatus> | null;
-  /** if omitted, defaults to true (show real dates) */
   showFullDates?: boolean;
-  /** supply to render a global "Submit Test" footer button (own view only) */
   onSubmitTest?: () => void;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Component                                                                  */
-/* -------------------------------------------------------------------------- */
-export function HealthStatusArea({
-  stdis,
-  statuses,
-  showFullDates = true,
-  onSubmitTest,
-}: Props) {
+export function HealthStatusArea({ stdis, statuses, showFullDates = true, onSubmitTest }: Props) {
   const theme = useTheme();
   const [openId, setOpenId] = useState<string | null>(null);
+  if (!stdis?.length) return <Text style={theme.bodyText}>No STDIs available.</Text>;
 
-  if (!stdis || stdis.length === 0) {
-    return <Text style={theme.bodyText}>No STDIs available.</Text>;
-  }
-
-  function toggle(id: string) {
-    setOpenId((prev) => (prev === id ? null : id));
-  }
+  const toggle = (id: string) => setOpenId((prev) => (prev === id ? null : id));
 
   return (
     <View style={{ width: '100%' }}>
       {stdis.map((stdi) => {
         const s = statuses?.[stdi.id] ?? {};
         const isOpen = openId === stdi.id;
-
-        /* map numeric code → string for card */
         let testResult: 'Positive' | 'Negative' | 'Exposed' | 'Not Tested' = 'Not Tested';
         switch (s.healthStatus) {
           case 1:
@@ -81,14 +63,19 @@ export function HealthStatusArea({
             onClose={() => toggle(stdi.id)}
           />
         ) : (
-          <TouchableOpacity key={stdi.id} activeOpacity={0.7} onPress={() => toggle(stdi.id)}>
+          <Pressable
+            key={stdi.id}
+            android_ripple={{ color: '#ddd' }}
+            onPress={() => toggle(stdi.id)}
+            style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}
+          >
             <HealthStatusCard
               name={stdi.name || stdi.id}
               testResult={testResult}
               statusDate={s.statusDate ?? null}
               windowPeriodMax={stdi.windowPeriodMax ?? 0}
             />
-          </TouchableOpacity>
+          </Pressable>
         );
       })}
 
