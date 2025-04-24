@@ -4,15 +4,16 @@ import { View, Text, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
 import { ResultIcon, ResultType } from '../ui/ResultIcon';
 
-type Props = {
+export type CardResult = 'Positive' | 'Negative' | 'Exposed' | 'Not Tested';
+
+interface Props {
   name: string;
-  /** 'Exposed' is now treated as its own result */
-  testResult: 'Positive' | 'Negative' | 'Exposed' | 'Not Tested';
-  /** Real date, Firestore Timestamp, or masked string (“Last 90 Days”, …) */
-  statusDate: any;
-  /** Max window‑period in days for this STDI (needed to show “test after …”) */
+  testResult: CardResult;
+  statusDate: any;                // real date, Timestamp, or masked string
   windowPeriodMax: number;
-};
+  /** If true, suppresses the bottom divider so the card can be reused inside a detail pane. */
+  hideBorder?: boolean;
+}
 
 const MASKED = ['Last 90 Days', 'Last 180 Days', 'Last Year', 'Over 1 Year'];
 
@@ -29,17 +30,12 @@ function formatDate(val: any): string {
   return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
 }
 
-function addDays(base: Date, days: number): string {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d.toLocaleDateString();
-}
-
 export function HealthStatusCard({
   name,
   testResult,
   statusDate,
   windowPeriodMax,
+  hideBorder,
 }: Props) {
   const theme = useTheme();
 
@@ -51,43 +47,23 @@ export function HealthStatusCard({
       : 'notTested';
 
   const isExposed = testResult === 'Exposed';
-  const caution   = isExposed && base !== 'positive';
-
-  /* ---- compute “test after …” for exposures ---- */
-  let testAfterStr: string | null = null;
-  if (isExposed && statusDate && windowPeriodMax > 0) {
-    let baseDate: Date | null = null;
-    if (statusDate?.seconds !== undefined) baseDate = new Date(statusDate.seconds * 1000);
-    else if (typeof statusDate.toDate === 'function') baseDate = statusDate.toDate();
-    else {
-      const d = new Date(statusDate);
-      if (!isNaN(d.getTime())) baseDate = d;
-    }
-    if (baseDate) testAfterStr = addDays(baseDate, windowPeriodMax);
-  }
+  const caution = isExposed && base !== 'positive';
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, hideBorder && styles.noBorder]}>      
       <View style={styles.row}>
         <View style={styles.textCol}>
           <Text style={[styles.name, { color: theme.title.color }]}>{name}</Text>
 
-          {/* ---- conditional labels ---- */}
           {testResult === 'Not Tested' && (
             <Text style={styles.label}>Test Date: Not Tested</Text>
           )}
-
           {(testResult === 'Negative' || testResult === 'Positive') && statusDate && (
             <Text style={styles.label}>Last Tested: {formatDate(statusDate)}</Text>
           )}
-
           {testResult === 'Exposed' && statusDate && (
             <Text style={styles.label}>Exposure Date: {formatDate(statusDate)}</Text>
           )}
-
-          {/* {testAfterStr && (
-            <Text style={styles.label}>Exposed - test after {testAfterStr}</Text>
-          )} */}
         </View>
 
         <ResultIcon result={base} active caution={caution} onPress={() => {}} />
@@ -97,7 +73,14 @@ export function HealthStatusCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderBottomWidth: 1, borderColor: '#eee', marginRight: 10 },
+  card: {
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+    marginRight: 10,
+  },
+  noBorder: {
+    borderBottomWidth: 0,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
