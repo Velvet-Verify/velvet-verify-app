@@ -16,7 +16,7 @@ export type STI = {
 };
 
 export type HealthStatus = {
-  healthStatus?: number; // 0-3
+  healthStatus?: number;  // 0-3
   statusDate?: any;
   newAlert?: boolean;
 };
@@ -26,7 +26,8 @@ interface Props {
   statuses: Record<string, HealthStatus> | null;
   showFullDates?: boolean;
   onSubmitTest?: () => void;
-  onMarkRead?: (stdiId: string) => void;        // <-- NEW
+  /** present only on *my* Health screen; absent on connections */
+  onMarkRead?: (stdiId: string) => void;
 }
 
 /* ---------- helpers ---------- */
@@ -39,7 +40,7 @@ export function HealthStatusArea({
   statuses,
   showFullDates = true,
   onSubmitTest,
-  onMarkRead,
+  onMarkRead,                // present only on own profile
 }: Props) {
   const theme = useTheme();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -59,9 +60,9 @@ export function HealthStatusArea({
 
   /* open / close card */
   const toggle = (id: string) => {
-    /* when opening a NEW alert → mark read */
-    if (openId !== id && statuses?.[id]?.newAlert) {
-      onMarkRead?.(id);              // fire-and-forget up to parent
+    /* mark read only on *my* screen */
+    if (openId !== id && statuses?.[id]?.newAlert && onMarkRead) {
+      onMarkRead(id);         // fire-and-forget up to parent
     }
     setOpenId((prev) => (prev === id ? null : id));
   };
@@ -71,21 +72,16 @@ export function HealthStatusArea({
       {sortedStdis.map((stdi) => {
         const s = statuses?.[stdi.id] ?? {};
         const isOpen = openId === stdi.id;
-        const hasNewAlert = s.newAlert === true;
+        /* show badge only if onMarkRead exists (own profile) */
+        const hasNewAlert = s.newAlert === true && !!onMarkRead;
 
         /* derive display result */
         let testResult: 'Positive' | 'Negative' | 'Exposed' | 'Not Tested' =
           'Not Tested';
         switch (s.healthStatus) {
-          case 1:
-            testResult = 'Negative';
-            break;
-          case 2:
-            testResult = 'Exposed';
-            break;
-          case 3:
-            testResult = 'Positive';
-            break;
+          case 1: testResult = 'Negative'; break;
+          case 2: testResult = 'Exposed';  break;
+          case 3: testResult = 'Positive'; break;
         }
 
         return isOpen ? (
@@ -108,7 +104,7 @@ export function HealthStatusArea({
               testResult={testResult}
               statusDate={s.statusDate ?? null}
               windowPeriodMax={stdi.windowPeriodMax ?? 0}
-              newAlert={hasNewAlert}
+              newAlert={hasNewAlert}          /* ← badge only for own screen */
             />
           </Pressable>
         );
