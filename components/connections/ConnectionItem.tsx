@@ -4,127 +4,88 @@ import { View, Text, Image, StyleSheet } from 'react-native';
 import { useTheme } from 'styled-components/native';
 import { Timestamp } from 'firebase/firestore';
 
-/* ------------- types ------------- */
 export interface Connection {
   displayName: string | null;
-  imageUrl: string | null;
-  createdAt: any;
-  updatedAt?: any;
-  connectionLevel: number;
-  connectionStatus: number; // 0=pending, 1=active
+  imageUrl:    string | null;
+  createdAt:   any;
+  updatedAt?:  any;
+  connectionLevel:  number;
+  connectionStatus: number;  // 0=pending, 1=active
+  senderSUUID:   string;
+  recipientSUUID:string;
 
-  senderSUUID: string;
-  recipientSUUID: string;
-
-  /* merged‑doc extras (for pending‑elevation) */
+  /* extras for pending-elevation merge */
   pendingDocId?: string;
   pendingSenderSUUID?: string;
   pendingRecipientSUUID?: string;
-  pendingLevelName?: string;
-  pendingLevelId?: number;
 }
 
 interface Props {
-  connection: Connection;  // actually DisplayConnection from the screen
-  mySUUID?: string;
+  connection: Connection;
+  mySUUID?:   string;
+  highlight?: boolean;
 }
 
-/* ------------- component ---------- */
-export function ConnectionItem({ connection, mySUUID }: Props) {
+export function ConnectionItem({ connection, mySUUID, highlight=false }: Props) {
   const theme = useTheme();
   const displayName = connection.displayName || 'Unknown';
 
-  /* helper: build a nice date string */
-  function formatDisplayDate(val: any): string | null {
-    if (!val) return null;
-    let d: Date | null = null;
+  /* -------- subtitle (date or status) -------- */
+  const dateStr = formatDate(connection.updatedAt ?? connection.createdAt);
 
-    if (val instanceof Timestamp) d = val.toDate();
-    else if (typeof val === 'object' && typeof val.seconds === 'number')
-      d = new Date(val.seconds * 1000);
-    else if (typeof val === 'string') {
-      const parsed = new Date(val);
-      if (!isNaN(parsed.getTime())) d = parsed;
-    }
+  let subtitle: string | null = dateStr;
 
-    if (!d) return null;
-    return d.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+  // Show “Request Sent / Elevation Request Sent” to the **sender** only
+  if (connection.connectionStatus === 0 && connection.senderSUUID === mySUUID) {
+    subtitle = 'Request Sent';
+  } else if (connection.pendingDocId && connection.pendingSenderSUUID === mySUUID) {
+    subtitle = 'Elevation Request Sent';
   }
 
-  /* -------- secondary line logic -------- */
-  let subtitle: string | null = null;
-
-  // Case 1: I'm the recipient of a pending‑elevation request
-  if (connection.pendingDocId) {
-    if (connection.pendingRecipientSUUID === mySUUID) {
-      subtitle = 'Pending Request';                 // they’re waiting on me
-    } else if (connection.pendingSenderSUUID === mySUUID) {
-      subtitle = 'Elevation Request Sent';          // I’m waiting on them
-    }
-  }
-  // Case 2: regular active connection → show last‑updated date
-  else if (
-    connection.connectionStatus <= 1 &&
-    connection.updatedAt
-  ) {
-    subtitle = formatDisplayDate(connection.updatedAt);
-  }
-  // otherwise leave subtitle null
-
-  /* -------- render -------- */
   return (
-    <View style={styles.container}>
-      {connection.imageUrl ? (
-        <Image source={{ uri: connection.imageUrl }} style={styles.avatar} />
-      ) : (
-        <View style={styles.placeholderAvatar} />
+    <View style={[styles.row, highlight && styles.highlight]}>
+      {highlight && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>NEW</Text>
+        </View>
       )}
 
-      <View style={styles.infoContainer}>
-        <Text style={[theme.bodyText, styles.topLine]}>{displayName}</Text>
+      {connection.imageUrl
+        ? <Image source={{ uri: connection.imageUrl }} style={styles.avatar} />
+        : <View style={styles.placeholder} />}
 
-        {subtitle && (
-          <Text style={[theme.bodyText, styles.secondaryLine]}>{subtitle}</Text>
-        )}
+      <View style={styles.info}>
+        <Text style={[theme.bodyText, styles.name]}>{displayName}</Text>
+        {subtitle && <Text style={[theme.bodyText, styles.sub]}>{subtitle}</Text>}
       </View>
     </View>
   );
 }
 
-/* ------------- styles ------------- */
+/* -------- helpers -------- */
+function formatDate(v: any): string | null {
+  if (!v) return null;
+  let d: Date | null = null;
+  if (v instanceof Timestamp)                d = v.toDate();
+  else if (typeof v === 'object' && v.seconds) d = new Date(v.seconds * 1000);
+  else if (typeof v === 'string') {
+    const p = new Date(v); if (!isNaN(p.getTime())) d = p;
+  }
+  return d ? d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }) : null;
+}
+
+/* -------- styles -------- */
 const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 8,
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 10,
-  },
-  placeholderAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 10,
-    backgroundColor: '#ccc',
-  },
-  infoContainer: {
-    flex: 1,
-  },
-  topLine: {
-    fontWeight: 'bold',
-    marginBottom: 2,
-  },
-  secondaryLine: {
-    fontSize: 14,
-    opacity: 0.8,
-    marginTop: 2,
-  },
+  row: { flexDirection:'row', alignItems:'center', marginVertical:8 },
+  highlight: { backgroundColor:'#fffbe6' },
+
+  avatar:     { width:50, height:50, borderRadius:25, marginRight:10 },
+  placeholder:{ width:50, height:50, borderRadius:25, marginRight:10, backgroundColor:'#ccc' },
+  info:       { flex:1 },
+  name:       { fontWeight:'bold', marginBottom:2 },
+  sub:        { fontSize:14, opacity:0.8, marginTop:2 },
+
+  badge:{ position:'absolute', top:2, right:2, backgroundColor:'crimson',
+          paddingHorizontal:6, paddingVertical:2, borderRadius:4, zIndex:1 },
+  badgeText:{ color:'#fff', fontSize:10, fontWeight:'bold' },
 });

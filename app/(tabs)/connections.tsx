@@ -1,5 +1,5 @@
 // app/(tabs)/connections.tsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,28 +8,23 @@ import {
   TouchableOpacity,
   RefreshControl,
   StyleSheet,
-  Alert,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useConnections } from "@/src/context/ConnectionsContext";
-import { useTheme } from "styled-components/native";
-import { getFunctions, httpsCallable } from "firebase/functions";
-import { firebaseApp } from "@/src/firebase/config";
-import {
-  getFirestore,
-  collection,
-  query,
-  where,
-  getDocs,
-} from "firebase/firestore";
-import { useAuth } from "@/src/context/AuthContext";
-import { useStdis } from "@/hooks/useStdis";
-import { ThemedButton } from "@/components/ui/ThemedButton";
-import { NewConnection } from "@/components/connections/NewConnection";
-import { ConnectionDetailsModal } from "@/components/connections/ConnectionDetailsModal";
-import { ConnectionItem } from "@/components/connections/ConnectionItem";
-import { useLookups } from "@/src/context/LookupContext";
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import { useConnections } from '@/src/context/ConnectionsContext';
+import { useTheme } from 'styled-components/native';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { firebaseApp } from '@/src/firebase/config';
+import { getFirestore } from 'firebase/firestore';
+import { useAuth } from '@/src/context/AuthContext';
+import { useStdis } from '@/hooks/useStdis';
+import { ThemedButton } from '@/components/ui/ThemedButton';
+import { NewConnection } from '@/components/connections/NewConnection';
+import { ConnectionDetailsModal } from '@/components/connections/ConnectionDetailsModal';
+import { ConnectionItem } from '@/components/connections/ConnectionItem';
+import { useLookups } from '@/src/context/LookupContext';
 
+/* ---------- base & merged-doc types ---------- */
 export interface Connection {
   connectionDocId?: string;
   displayName: string | null;
@@ -37,12 +32,12 @@ export interface Connection {
   createdAt: string | null;
   updatedAt?: string | null;
   connectionLevel: number;   // 1=Blocked, 2=New, 3=Fling, 4=Friend, 5=Bond
-  connectionStatus: number;  // 0=pending, 1=active, etc.
+  connectionStatus: number;  // 0=pending, 1=active
   senderSUUID: string;
   recipientSUUID: string;
 }
-
 interface DisplayConnection extends Connection {
+  /* merged pending-elevation extras */
   pendingDocId?: string;
   pendingSenderSUUID?: string;
   pendingRecipientSUUID?: string;
@@ -50,277 +45,120 @@ interface DisplayConnection extends Connection {
   pendingLevelId?: number;
 }
 
+/* ---------- screen ---------- */
 export default function ConnectionsScreen() {
-  const theme = useTheme();
-  const insets = useSafeAreaInsets();
-
-  const { connections, loading, refreshConnections } = useConnections();
-  const { connectionLevels } = useLookups();
-
-  const [newConnectionModalVisible, setNewConnectionModalVisible] = useState(false);
-  const [selectedConnection, setSelectedConnection] = useState<DisplayConnection | null>(null);
-  const [detailsModalVisible, setDetailsModalVisible] = useState(false);
-  const [mySUUID, setMySUUID] = useState<string>("");
-
-  // Collapsible states
-  const [bondOpen, setBondOpen] = useState(true);      // level=5
-  const [friendOpen, setFriendOpen] = useState(true);  // level=4
-  const [flingOpen, setFlingOpen] = useState(true);    // level=3
-  const [newOpen, setNewOpen] = useState(true);        // level=2
-  const [blockedOpen, setBlockedOpen] = useState(true);// level=1
-  const [pendingOpen, setPendingOpen] = useState(true);
-
-  const [forceRender, setForceRender] = useState(0);
-
-  const functionsInstance = getFunctions(firebaseApp);
-  
-  interface ComputeHashedIdPayload { hashType: string; inputSUUID?: string }
-  interface ComputeHashedIdResp   { hashedId: string }
-  const computeHashedIdCF = httpsCallable<
-    ComputeHashedIdPayload,
-    ComputeHashedIdResp
-  >(functionsInstance, 'computeHashedId');
-
-  const updateConnectionStatusCF = useMemo(
-    () => httpsCallable(functionsInstance, "updateConnectionStatus"),
-    [functionsInstance]
-  );
+  const theme   = useTheme();
+  const insets  = useSafeAreaInsets();
+  const nav     = useNavigation();
+  const db      = getFirestore(firebaseApp);
+  const fns     = getFunctions(firebaseApp);
 
   const { user } = useAuth();
+  const { connections, loading, refreshConnections } = useConnections();
+  const { connectionLevels } = useLookups();
   const { stdis } = useStdis();
-  const db = getFirestore(firebaseApp);
 
-  // 1) Compute my SUUID
+  /* ---------- local state ---------- */
+  const [mySUUID, setMySUUID] = useState('');
+  const [newModal, setNewModal] = useState(false);
+  const [selConn,  setSelConn]  = useState<DisplayConnection | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+
+  /* collapsible state for each level group */
+  const [open, setOpen] = useState({
+    bond: true, friend: true, fling: true, new: true, blocked: true,
+  });
+
+  /* ---------- compute my SUUID once ---------- */
   useEffect(() => {
-    async function fetchMySUUID() {
-      if (!user) return;
-      try {
-        const result = await computeHashedIdCF({ hashType: "standard" });
-        setMySUUID(result.data.hashedId);
-      } catch (err) {
-        console.error("Error computing my SUUID:", err);
-      }
-    }
-    fetchMySUUID();
-  }, [user, computeHashedIdCF]);
+    if (!user) return;
+    httpsCallable(fns, 'computeHashedId')({ hashType: 'standard' })
+      .then((r: any) => setMySUUID(r.data.hashedId))
+      .catch((err) => console.warn('computeHashedId', err));
+  }, [user, fns]);
 
-  // 2) Expire "short-term" connections => New(2) or Fling(3) after 48hrs
-  useEffect(() => {
-    if (!loading && connections.length > 0) {
-      checkAndExpireShortTerm();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, connections]);
-
-  async function checkAndExpireShortTerm() {
-    const now = Date.now();
-    const cutoffMs = now - 48 * 60 * 60 * 1000; // 48 hours
-
-    const updatesNeeded: Array<Promise<any>> = [];
-
-    for (const c of connections) {
-      // only if active + level in [2=New, 3=Fling]
-      if ([2, 3].includes(c.connectionLevel) && c.connectionStatus === 1 && c.updatedAt) {
-        const updatedTime = new Date(c.updatedAt).getTime();
-        if (updatedTime < cutoffMs && c.connectionDocId) {
-          // Deactivate => status=4
-          updatesNeeded.push(
-            updateConnectionStatusCF({
-              docId: c.connectionDocId,
-              newStatus: 4, // e.g. Deactivated
-            })
-          );
-          // also expire any pending doc for that pair
-          const pairKey = [c.senderSUUID, c.recipientSUUID].sort().join("_");
-          updatesNeeded.push(expireAnyPendingDoc(pairKey));
-        }
-      }
-    }
-
-    if (updatesNeeded.length > 0) {
-      try {
-        await Promise.all(updatesNeeded);
-        await refreshConnections();
-        Alert.alert(
-          "Expired short-term connections",
-          "Some old New/Fling connections have been deactivated."
-        );
-      } catch (err: any) {
-        console.error("Error expiring short-term connections:", err);
-      }
-    }
-  }
-
-  async function expireAnyPendingDoc(pairKey: string) {
-    const [s1, s2] = pairKey.split("_");
-    try {
-      const qPending = query(
-        collection(db, 'connections'),
-        where("connectionStatus", "==", 0),
-        // pending doc for short-term => level in [2,3]
-        where("connectionLevel", "in", [2, 3]),
-        where("senderSUUID", "in", [s1, s2]),
-        where("recipientSUUID", "in", [s1, s2])
-      );
-      const snap = await getDocs(qPending);
-      if (snap.empty) return;
-
-      const tasks: Array<Promise<any>> = [];
-      snap.forEach((docSnap) => {
-        tasks.push(
-          updateConnectionStatusCF({
-            docId: docSnap.id,
-            newStatus: 3, // "Expired" or some code
-          })
-        );
-      });
-      if (tasks.length > 0) {
-        await Promise.all(tasks);
-      }
-    } catch (err) {
-      console.warn("Error expiring pending doc for pair:", pairKey, err);
-    }
-  }
-
-  // 3) Merge active & pending docs into "displayConnections"
+  /* ---------- merge active & pending docs ---------- */
   const displayConnections = useMemo<DisplayConnection[]>(() => {
-    function getPairKey(c: Connection) {
-      return [c.senderSUUID, c.recipientSUUID].sort().join("_");
-    }
+    function key(c: Connection) { return [c.senderSUUID, c.recipientSUUID].sort().join('_'); }
 
-    const pairMap = new Map<string, { active?: Connection; pending?: Connection }>();
-    // We'll only consider status=0 (pending) or 1 (active)
-    const relevant = connections.filter((c) => [0, 1].includes(c.connectionStatus));
-
-    for (const c of relevant) {
-      const key = getPairKey(c);
-      if (!pairMap.has(key)) {
-        pairMap.set(key, {});
-      }
-      const pairData = pairMap.get(key)!;
-
-      if (c.connectionStatus === 1) {
-        pairData.active = c;
-      } else {
-        pairData.pending = c;
-      }
-    }
-
-    const result: DisplayConnection[] = [];
-    for (const { active, pending } of pairMap.values()) {
-      if (active && pending) {
-        const pendingLevelName = connectionLevels[String(pending.connectionLevel)]?.name 
-          || `Level ${pending.connectionLevel}`;
-        const merged: DisplayConnection = {
-          ...active,
-          pendingDocId: pending.connectionDocId,
-          pendingSenderSUUID: pending.senderSUUID,
-          pendingRecipientSUUID: pending.recipientSUUID,
-          pendingLevelName,
-          pendingLevelId: pending.connectionLevel,
-        };
-        result.push(merged);
-      } else if (active) {
-        result.push(active);
-      } else if (pending) {
-        result.push(pending);
-      }
-    }
-    return result;
-  }, [connections, connectionLevels]);
-
-  /**
-   * If doc is pending (status=0) and I'm the recipient => I must accept/reject.
-   */
-  function requiresActionFromMe(c: DisplayConnection): boolean {
-    // If we no longer handle exposure requests, skip that portion
-    if (c.connectionStatus === 0 && c.recipientSUUID === mySUUID) {
-      return true;
-    }
-    return false;
-  }
-
-  // 5) Group them by level if active, or mark as "Pending Requests"
-  const {
-    blocked,
-    newOnes,
-    flings,
-    friends,
-    bonds,
-    pendingRequests,
-  } = useMemo(() => {
-    const blocked: DisplayConnection[] = [];
-    const newOnes: DisplayConnection[] = [];
-    const flings: DisplayConnection[] = [];
-    const friends: DisplayConnection[] = [];
-    const bonds: DisplayConnection[] = [];
-    const pendingRequests: DisplayConnection[] = [];
-
-    displayConnections.forEach((c) => {
-      if (requiresActionFromMe(c)) {
-        pendingRequests.push(c);
-      } else if (c.connectionStatus === 1) {
-        // If it's active, group by c.connectionLevel:
-        switch (c.connectionLevel) {
-          case 5:
-            bonds.push(c);
-            break;
-          case 4:
-            friends.push(c);
-            break;
-          case 3:
-            flings.push(c);
-            break;
-          case 2:
-            newOnes.push(c);
-            break;
-          case 1:
-            blocked.push(c);
-            break;
-        }
-      }
+    const map = new Map<string, { active?: Connection; pending?: Connection }>();
+    connections.filter((c) => [0, 1].includes(c.connectionStatus)).forEach((c) => {
+      const k = key(c);
+      if (!map.has(k)) map.set(k, {});
+      c.connectionStatus === 1 ? (map.get(k)!.active  = c)
+                               : (map.get(k)!.pending = c);
     });
 
-    return { blocked, newOnes, flings, friends, bonds, pendingRequests };
-  }, [displayConnections, mySUUID]);
+    const out: DisplayConnection[] = [];
+    map.forEach(({ active, pending }) => {
+      if (active && pending) {
+        out.push({
+          ...active,
+          pendingDocId:         pending.connectionDocId,
+          pendingSenderSUUID:   pending.senderSUUID,
+          pendingRecipientSUUID:pending.recipientSUUID,
+          pendingLevelName:     connectionLevels[String(pending.connectionLevel)]?.name ??
+                                `Level ${pending.connectionLevel}`,
+          pendingLevelId:       pending.connectionLevel,
+        });
+      } else if (active)  out.push(active);
+      else if (pending)   out.push(pending);          // brand-new request
+    });
+    return out;
+  }, [connections, connectionLevels]);
 
-  const isIOS = Platform.OS === "ios";
-  const bottomPadding = isIOS ? insets.bottom + 60 : 15;
-  const containerStyle = [theme.container, { paddingBottom: bottomPadding }];
-
-  function handlePressConnection(connection: DisplayConnection) {
-    setSelectedConnection(connection);
-    setDetailsModalVisible(true);
+  /* ---------- helper: does THIS user need to respond? ---------- */
+  function needsMyAction(c: DisplayConnection) {
+    return (c.connectionStatus === 0 && c.recipientSUUID === mySUUID) ||
+           (c.pendingDocId && c.pendingRecipientSUUID === mySUUID);
   }
 
-  function renderCollapsibleGroup(
-    title: string,
-    data: DisplayConnection[],
-    isOpen: boolean,
-    setIsOpen: (b: boolean) => void
-  ) {
-    if (!data || data.length === 0) return null;
-    const icon = isOpen ? "▼" : "►";
+  /* ---------- group rows by active level (or 'New') ---------- */
+  const groups = useMemo(() => {
+    const blocked: DisplayConnection[] = [];
+    const newOnes: DisplayConnection[] = [];
+    const flings:  DisplayConnection[] = [];
+    const friends: DisplayConnection[] = [];
+    const bonds:   DisplayConnection[] = [];
 
+    displayConnections.forEach((c) => {
+      const lvl = c.connectionStatus === 1 ? c.connectionLevel : 2; // pending ⇒ treat as “New”
+      switch (lvl) {
+        case 1: blocked.push(c); break;
+        case 2: newOnes.push(c); break;
+        case 3: flings.push(c);  break;
+        case 4: friends.push(c); break;
+        case 5: bonds.push(c);   break;
+      }
+    });
+    return { blocked, newOnes, flings, friends, bonds };
+  }, [displayConnections]);
+
+  /* ---------- tab-bar badge = #rows that need my action ---------- */
+  useEffect(() => {
+    const count = displayConnections.filter(needsMyAction).length;
+    nav.setOptions({ tabBarBadge: count ? count : undefined });
+  }, [displayConnections, nav]);
+
+  /* ---------- UI helpers ---------- */
+  function renderGroup(title: string, data: DisplayConnection[], key: keyof typeof open) {
+    if (!data.length) return null;
+    const icon = open[key] ? '▾' : '▸';
     return (
       <View style={{ marginBottom: 10 }}>
         <TouchableOpacity
-          onPress={() => setIsOpen(!isOpen)}
-          style={styles.collapsibleHeader}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.groupTitle}>{icon} {title}</Text>
+          onPress={() => setOpen({ ...open, [key]: !open[key] })}
+          style={styles.header} activeOpacity={0.8}>
+          <Text style={styles.title}>{icon} {title}</Text>
         </TouchableOpacity>
 
-        {isOpen && (
+        {open[key] && (
           <View style={{ paddingLeft: 10, marginTop: 5 }}>
-            {data.map((item) => (
-              <TouchableOpacity
-                key={item.connectionDocId || Math.random().toString()}
-                activeOpacity={0.7}
-                onPress={() => handlePressConnection(item)}
-              >
-                <ConnectionItem connection={item} mySUUID={mySUUID} />
+            {data.map((c) => (
+              <TouchableOpacity key={c.connectionDocId || Math.random().toString()}
+                                activeOpacity={0.7}
+                                onPress={() => { setSelConn(c); setShowDetails(true); }}>
+                <ConnectionItem connection={c} mySUUID={mySUUID} highlight={needsMyAction(c)} />
               </TouchableOpacity>
             ))}
           </View>
@@ -329,45 +167,36 @@ export default function ConnectionsScreen() {
     );
   }
 
+  /* ---------- render ---------- */
   if (loading) {
     return (
       <View style={[theme.centerContainer]}>
-        <Text style={theme.title}>Loading connections...</Text>
+        <Text style={theme.title}>Loading connections…</Text>
       </View>
     );
   }
+
+  const isIOS = Platform.OS === 'ios';
+  const containerStyle = [theme.container, { paddingBottom: isIOS ? insets.bottom + 60 : 15 }];
 
   return (
     <View style={containerStyle}>
       <Text style={theme.title}>Your Connections</Text>
 
       <FlatList
-        data={[]}
-        keyExtractor={() => Math.random().toString()}
-        renderItem={() => null}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={refreshConnections}
-            tintColor={theme.buttonPrimary.backgroundColor}
-          />
-        }
+        data={[]} renderItem={() => null} keyExtractor={() => Math.random().toString()}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshConnections}
+                         tintColor={theme.buttonPrimary.backgroundColor} />}
         ListEmptyComponent={
-          <View style={{ paddingBottom: bottomPadding }}>
-            {renderCollapsibleGroup("Pending Requests", pendingRequests, pendingOpen, setPendingOpen)}
-            {renderCollapsibleGroup("Bonded Partners", bonds, bondOpen, setBondOpen)}
-            {renderCollapsibleGroup("Friends", friends, friendOpen, setFriendOpen)}
-            {renderCollapsibleGroup("Flings", flings, flingOpen, setFlingOpen)}
-            {renderCollapsibleGroup("New", newOnes, newOpen, setNewOpen)}
-            {renderCollapsibleGroup("Blocked", blocked, blockedOpen, setBlockedOpen)}
+          <View>
+            {renderGroup('Bonded Partners', groups.bonds,   'bond')}
+            {renderGroup('Friends',          groups.friends, 'friend')}
+            {renderGroup('Flings',           groups.flings,  'fling')}
+            {renderGroup('New',              groups.newOnes, 'new')}
+            {renderGroup('Blocked',          groups.blocked, 'blocked')}
 
-            {pendingRequests.length === 0 &&
-             bonds.length === 0 &&
-             friends.length === 0 &&
-             flings.length === 0 &&
-             newOnes.length === 0 &&
-             blocked.length === 0 && (
-              <View style={{ alignItems: "center", marginTop: 20 }}>
+            {displayConnections.length === 0 && (
+              <View style={{ alignItems: 'center', marginTop: 20 }}>
                 <Text style={theme.bodyText}>No connections found.</Text>
               </View>
             )}
@@ -375,26 +204,17 @@ export default function ConnectionsScreen() {
         }
       />
 
-      <ThemedButton
-        title="New Connection"
-        variant="primary"
-        onPress={() => setNewConnectionModalVisible(true)}
-      />
+      <ThemedButton title="New Connection" variant="primary"
+                    onPress={() => setNewModal(true)} />
 
-      <NewConnection
-        visible={newConnectionModalVisible}
-        onClose={() => setNewConnectionModalVisible(false)}
-      />
+      <NewConnection visible={newModal} onClose={() => setNewModal(false)} />
 
-      {selectedConnection && (
+      {selConn && (
         <ConnectionDetailsModal
-          visible={detailsModalVisible}
-          onClose={() => {
-            setDetailsModalVisible(false);
-            setSelectedConnection(null);
-          }}
-          connection={selectedConnection}
-          isRecipient={selectedConnection.recipientSUUID === mySUUID}
+          visible={showDetails}
+          onClose={() => { setShowDetails(false); setSelConn(null); }}
+          connection={selConn}
+          isRecipient={selConn.recipientSUUID === mySUUID}
           mySUUID={mySUUID}
           stdis={stdis}
         />
@@ -404,13 +224,6 @@ export default function ConnectionsScreen() {
 }
 
 const styles = StyleSheet.create({
-  groupTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  collapsibleHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 6,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  title:  { fontSize: 18, fontWeight: '600' },
 });
