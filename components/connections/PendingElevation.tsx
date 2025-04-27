@@ -59,7 +59,7 @@ export function PendingElevation({
     try {
       // Mark the pending doc as active and the base doc as deactivated
       await updateConnectionStatusCF({ docId: pendingDocId, newStatus: 1 });
-      await updateConnectionStatusCF({ docId: baseDocId, newStatus: 4 });
+      // await updateConnectionStatusCF({ docId: baseDocId, newStatus: 4 });
       Alert.alert("Accepted", `Elevated to ${pendingLevelName}.`);
       refreshConnections();
       onClose();

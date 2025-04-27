@@ -1,127 +1,212 @@
-/* eslint-disable max-len, no-irregular-whitespace, require-jsdoc, @typescript-eslint/no-explicit-any */
+// ============================================================================
 // functions/src/connections/updateConnectionLevel.ts
-// -----------------------------------------------------------------------------
-// Updates the connectionLevel for a given active connection document.
-// Handles:
-//   • Deactivating the existing connection doc (status 4)
-//   • Creating a replacement doc at the new level (status 1)
-//   • Rolling over exposure alerts when moving *into* any level ≥ 3.
-//       → If prior level ≤3 (brand‑new partnership), deactivate ALL active
-//         alerts and create fresh ones for every STDI.  Alerts tied to an
-//         already‑positive partner are marked "sent" immediately and the
-//         recipient’s healthStatus is updated to Exposed (code 2) per rules.
-//       → If prior level ≥4 (ongoing partnership), deactivate current alerts
-//         and recreate ONLY the ones we deactivated (no net‑new alerts, no
-//         status updates).
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// Callable Cloud Function that changes a connection’s level.
+//
+// • Elevations (newLevel > currentLevel)
+//   – Keep the current doc active (refresh updatedAt).
+//   – Create ONE pending doc at the higher level (connectionStatus = 0).
+//   – If a matching pending doc already exists, do nothing.
+//
+// • Downgrades (newLevel < currentLevel)
+//   – Deactivate the current doc (connectionStatus = 4).
+//   – Create active replacement doc at the lower level (connectionStatus = 1).
+//   – If a matching active doc already exists, just deactivate the higher-level
+//     doc and do not create another replacement.
+//
+// • If downgrading into ≥ level 3, roll over exposure alerts.
+// ============================================================================
 
-import {onCall, CallableOptions, CallableRequest, HttpsError} from "firebase-functions/v2/https";
+import {
+  onCall,
+  type CallableRequest,
+  type CallableOptions,
+  HttpsError,
+} from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import {computeHash} from "../computeHashedId";
-import {rollOverAlertsForElevation, PartnerInfo} from "../alerts";
-import {STANDARD_HASH_KEY, EXPOSURE_HASH_KEY, HEALTH_HASH_KEY} from "../params";
+import {rollOverAlertsForElevation, type PartnerInfo} from "../alerts";
+import {
+  STANDARD_HASH_KEY,
+  EXPOSURE_HASH_KEY,
+  HEALTH_HASH_KEY,
+} from "../params";
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
 /* ---------- types ---------- */
 interface Payload {
-  docId: string; // existing active connection doc Id
-  currentLevel: number; // its current connectionLevel
-  newLevel: number; // requested new level
+  docId: string;
+  currentLevel: number;
+  newLevel: number;
 }
 
-/* ---------- callable opts ---------- */
+/* ----------------------------------------------------------------- */
+/* Helper                                                            */
+/* ----------------------------------------------------------------- */
+/**
+ * Build the replacement connection document.
+ *
+ * @param {admin.firestore.DocumentData} data Orig connection doc's data.
+ * @param {number} level Target connection level.
+ * @param {number} status New `connectionStatus` (0 = pending, 1 = active).
+ * @param {admin.firestore.FieldValue} ts FS svr ts for created/updatedAt.
+ * @return {Record<string, unknown>} Replacement connection doc ready for FS
+ */
+function buildReplacement(
+  data: admin.firestore.DocumentData,
+  level: number,
+  status: number,
+  ts: admin.firestore.FieldValue,
+) {
+  return {
+    senderSUUID: data.senderSUUID,
+    recipientSUUID: data.recipientSUUID,
+    connectionLevel: level,
+    connectionStatus: status,
+    createdAt: ts,
+    updatedAt: ts,
+    ...(status === 1 && {connectedAt: ts}),
+  } as const;
+}
+
+/* ---------- callable ---------- */
 const opts: CallableOptions = {
   cors: "*",
   secrets: [STANDARD_HASH_KEY, EXPOSURE_HASH_KEY, HEALTH_HASH_KEY],
 };
 
-/* -------------------------------------------------------------------------- */
-/*  main callable                                                              */
-/* -------------------------------------------------------------------------- */
-export const updateConnectionLevel = onCall(opts, async (req: CallableRequest<Payload>) => {
-  if (!req.auth) throw new HttpsError("unauthenticated", "Auth required");
-  const {uid} = req.auth;
+export const updateConnectionLevel = onCall(opts, async (
+  req: CallableRequest<Payload>,
+) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Sign-in required");
 
-  const {docId, currentLevel, newLevel} = (req.data || {}) as any;
-  if (!docId || typeof currentLevel !== "number" || typeof newLevel !== "number") {
-    throw new HttpsError("invalid-argument", "docId, currentLevel, newLevel are required");
+  const {uid} = req.auth;
+  const {docId, currentLevel, newLevel} = req.data;
+  if (!docId || currentLevel === undefined || newLevel === undefined) {
+    throw new HttpsError(
+      "invalid-argument",
+      "docId, currentLevel and newLevel are required",
+    );
   }
   if (currentLevel === newLevel) return {success: true};
 
   const connRef = db.collection("connections").doc(docId);
-  const tsNow = admin.firestore.FieldValue.serverTimestamp();
-
+  const ts = admin.firestore.FieldValue.serverTimestamp();
   const isElevation = newLevel > currentLevel;
-  const newStatus = isElevation ? 0 : 1;
+  const callerSUUID = await computeHash("standard", uid);
+  const replacementStatus = isElevation ? 0 /* pending */ : 1;
 
-  /* ------------------------------------------------------------------ */
-  /* 1. deactivate old doc + create new active doc                       */
-  /* ------------------------------------------------------------------ */
+  /* ---------- 2. transaction ---------- */
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(connRef);
-    if (!snap.exists) throw new HttpsError("not-found", "Connection not found");
-    const data = snap.data();
-    if (!data) throw new HttpsError("internal", "Connection data missing");
+    if (!snap.exists) throw new HttpsError("not-found", "Connection missing");
+    const data = snap.data() as admin.firestore.DocumentData;
 
-    const dup1 = await tx.get(
-      db.collection("connections")
+    const otherSUUID =
+      callerSUUID === data.senderSUUID ? data.recipientSUUID : data.senderSUUID;
+
+    /* ----- duplicate guards ----- */
+    if (isElevation) {
+      const dup1 = db.collection("connections")
+        .where("senderSUUID", "==", callerSUUID)
+        .where("recipientSUUID", "==", otherSUUID)
+        .where("connectionLevel", "==", newLevel)
+        .where("connectionStatus", "==", 0)
+        .limit(1);
+
+      const dup2 = db.collection("connections")
+        .where("senderSUUID", "==", otherSUUID)
+        .where("recipientSUUID", "==", callerSUUID)
+        .where("connectionLevel", "==", newLevel)
+        .where("connectionStatus", "==", 0)
+        .limit(1);
+
+      const [d1, d2] = await Promise.all([tx.get(dup1), tx.get(dup2)]);
+      if (!d1.empty || !d2.empty) {
+        // Pending doc already exists → no-op
+        return;
+      }
+    } else {
+      const dupA = db.collection("connections")
         .where("senderSUUID", "==", data.senderSUUID)
         .where("recipientSUUID", "==", data.recipientSUUID)
         .where("connectionLevel", "==", newLevel)
-        .where("connectionStatus", "==", 0)
-        .limit(1),
-    );
-    if (!dup1.empty) return;
+        .where("connectionStatus", "==", 1)
+        .limit(1);
 
-    const dup2 = await tx.get(
-      db.collection("connections")
-        .where("recipientSUUID", "==", data.senderSUUID)
+      const dupB = db.collection("connections")
         .where("senderSUUID", "==", data.recipientSUUID)
+        .where("recipientSUUID", "==", data.senderSUUID)
         .where("connectionLevel", "==", newLevel)
-        .where("connectionStatus", "==", 0)
-        .limit(1),
-    );
-    if (!dup2.empty) return;
+        .where("connectionStatus", "==", 1)
+        .limit(1);
 
-    tx.set(db.collection("connections").doc(), {
-      senderSUUID: data.senderSUUID,
-      recipientSUUID: data.recipientSUUID,
-      connectionLevel: newLevel,
-      connectionStatus: newStatus,
-      createdAt: tsNow,
-      updatedAt: tsNow,
-      ...(newStatus === 1 && {connectedAt: tsNow}),
-    });
+      const [dA, dB] = await Promise.all([tx.get(dupA), tx.get(dupB)]);
+      if (!dA.empty || !dB.empty) {
+        // Target level already active → only deactivate current doc
+        tx.update(connRef, {connectionStatus: 4, updatedAt: ts});
+        return;
+      }
+    }
+
+    /* ----- update current doc ----- */
+    tx.update(connRef, isElevation ?
+      {updatedAt: ts} :
+      {connectionStatus: 4, updatedAt: ts});
+
+    /* ----- create replacement doc ----- */
+    const newDoc = db.collection("connections").doc();
+    let payload = buildReplacement(data, newLevel, replacementStatus, ts);
+
+    if (isElevation) {
+      payload = {
+        ...payload, senderSUUID: callerSUUID,
+        recipientSUUID: otherSUUID,
+      };
+    }
+
+    tx.set(newDoc, payload);
   });
 
-  /* ------------------------------------------------------------------ */
-  /* 2. roll‑over alerts if entering level ≥ 3                           */
-  /* ------------------------------------------------------------------ */
+  /* ---------- 3. roll over alerts on downgrade into ≥ 3 ---------- */
   if (!isElevation && newLevel >= 3) {
     const callerSUUID = await computeHash("standard", uid);
+    const data = (await connRef.get()).data();
+    if (data) {
+      const otherSUUID = data.senderSUUID === callerSUUID ?
+        data.recipientSUUID :
+        data.senderSUUID;
 
-    const snap = await connRef.get();
-    const data = snap.data();
-    if (!data) return {success: true};
+      if (otherSUUID) {
+        const [callerES, callerHS, otherES, otherHS] = await Promise.all([
+          computeHash("exposure", "", callerSUUID),
+          computeHash("health", "", callerSUUID),
+          computeHash("exposure", "", otherSUUID),
+          computeHash("health", "", otherSUUID),
+        ]);
 
-    const {senderSUUID, recipientSUUID} = data;
-    const otherSUUID = senderSUUID === callerSUUID ? recipientSUUID : senderSUUID;
-    if (!otherSUUID) return {success: true};
+        const callerInfo: PartnerInfo = {
+          suuid: callerSUUID,
+          esuuid: callerES,
+          hsuuid: callerHS,
+        };
+        const otherInfo: PartnerInfo = {
+          suuid: otherSUUID,
+          esuuid: otherES,
+          hsuuid: otherHS,
+        };
 
-    const [callerES, otherES, callerHS, otherHS] = await Promise.all([
-      computeHash("exposure", "", callerSUUID),
-      computeHash("exposure", "", otherSUUID),
-      computeHash("health", "", callerSUUID),
-      computeHash("health", "", otherSUUID),
-    ]);
-
-    const callerInfo: PartnerInfo = {suuid: callerSUUID, esuuid: callerES, hsuuid: callerHS};
-    const otherInfo: PartnerInfo = {suuid: otherSUUID, esuuid: otherES, hsuuid: otherHS};
-
-    const enteringFromLowerLevel = currentLevel <= 3;
-    await rollOverAlertsForElevation(callerInfo, otherInfo, enteringFromLowerLevel, tsNow);
+        const enteringFromLower = currentLevel <= 3;
+        await rollOverAlertsForElevation(
+          callerInfo,
+          otherInfo,
+          enteringFromLower,
+          ts,
+        );
+      }
+    }
   }
 
   return {success: true};

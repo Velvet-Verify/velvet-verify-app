@@ -22,7 +22,6 @@ interface UpdateConnectionStatusData {
 
 const callableOptions: CallableOptions = {
   cors: "*",
-  // hashes executed in this function:
   secrets: ["STANDARD_HASH_KEY", "EXPOSURE_HASH_KEY", "HEALTH_HASH_KEY"],
 };
 
@@ -62,7 +61,45 @@ export const updateConnectionStatus = onCall(
     if (newStatus === 1) {
       if (!data.connectedAt) updateFields.connectedAt = now;
 
+      /* --------------------------------------------------------------
+       * 1. If level ≥ 3 we may need to roll over exposure alerts.
+       *    We first fetch any lower-level active docs so we can:
+       *      • find the previous highest level (to decide enteringFromLower)
+       *      • deactivate them later on
+       * -------------------------------------------------------------- */
+      let lowerActiveA: FirebaseFirestore.QuerySnapshot = undefined as any;
+      let lowerActiveB: FirebaseFirestore.QuerySnapshot = undefined as any;
+
       if (data.connectionLevel >= 3) {
+        [lowerActiveA, lowerActiveB] = await Promise.all([
+          db
+            .collection("connections")
+            .where("senderSUUID", "==", data.senderSUUID)
+            .where("recipientSUUID", "==", data.recipientSUUID)
+            .where("connectionLevel", "<", data.connectionLevel)
+            .where("connectionStatus", "==", 1)
+            .get(),
+          db
+            .collection("connections")
+            .where("senderSUUID", "==", data.recipientSUUID)
+            .where("recipientSUUID", "==", data.senderSUUID)
+            .where("connectionLevel", "<", data.connectionLevel)
+            .where("connectionStatus", "==", 1)
+            .get(),
+        ]);
+
+        /* ----- find previous highest active level ----- */
+        let previousLevel = 0;
+        [lowerActiveA, lowerActiveB].forEach((snap) =>
+          snap.docs.forEach((d) => {
+            const lvl = d.get("connectionLevel") as number;
+            if (lvl > previousLevel) previousLevel = lvl;
+          }),
+        );
+
+        const enteringFromLower = previousLevel <= 3;
+
+        /* ----- compute hashes & roll over alerts ----- */
         const [senderES, recipES, senderHS, recipHS] = await Promise.all([
           computeHash("exposure", "", data.senderSUUID),
           computeHash("exposure", "", data.recipientSUUID),
@@ -81,36 +118,39 @@ export const updateConnectionStatus = onCall(
           hsuuid: recipHS,
         };
 
-        const enteringFromLower = data.connectionLevel <= 3;
         await rollOverAlertsForElevation(
           senderInfo,
           recipInfo,
           enteringFromLower,
-          now
+          now,
         );
       }
 
-      const lowerActiveA = db
-        .collection("connections")
-        .where("senderSUUID", "==", data.senderSUUID)
-        .where("recipientSUUID", "==", data.recipientSUUID)
-        .where("connectionLevel", "<", data.connectionLevel)
-        .where("connectionStatus", "==", 1)
-        .get();
-
-      const lowerActiveB = db
-        .collection("connections")
-        .where("senderSUUID", "==", data.recipientSUUID)
-        .where("recipientSUUID", "==", data.senderSUUID)
-        .where("connectionLevel", "<", data.connectionLevel)
-        .where("connectionStatus", "==", 1)
-        .get();
-
-      const snapList = await Promise.all([lowerActiveA, lowerActiveB]);
+      /* --------------------------------------------------------------
+       * 2. Deactivate any lower-level active docs we just located
+       * -------------------------------------------------------------- */
+      if (!lowerActiveA) {
+        [lowerActiveA, lowerActiveB] = await Promise.all([
+          db
+            .collection("connections")
+            .where("senderSUUID", "==", data.senderSUUID)
+            .where("recipientSUUID", "==", data.recipientSUUID)
+            .where("connectionLevel", "<", data.connectionLevel)
+            .where("connectionStatus", "==", 1)
+            .get(),
+          db
+            .collection("connections")
+            .where("senderSUUID", "==", data.recipientSUUID)
+            .where("recipientSUUID", "==", data.senderSUUID)
+            .where("connectionLevel", "<", data.connectionLevel)
+            .where("connectionStatus", "==", 1)
+            .get(),
+        ]);
+      }
 
       const batch = db.batch();
-      snapList.forEach((s) =>
-        s.docs.forEach((d) =>
+      [lowerActiveA, lowerActiveB].forEach((snap) =>
+        snap.docs.forEach((d) =>
           batch.update(d.ref, {connectionStatus: 4, updatedAt: now}),
         ),
       );

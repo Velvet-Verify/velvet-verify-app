@@ -95,9 +95,10 @@ export default function ProfileSetup() {
           doc(db, 'healthStatus', `${hsuuid}_${d.id}`),
           {
             stdiId: d.id,
-            healthStatus: 0,    // 0 = Not Tested
+            healthStatus: 0,
             statusDate: now,
             createdAt: now,
+            newAlert: false
           },
           { merge: true },
         );
