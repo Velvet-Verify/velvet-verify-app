@@ -11,7 +11,7 @@ interface Props {
   testResult: CardResult;
   statusDate: any;                // real date, Timestamp, or masked string
   windowPeriodMax: number;
-  /** If true, suppresses the bottom divider so the card can be reused inside a detail pane. */
+  newAlert?: boolean;             // <-- NEW
   hideBorder?: boolean;
 }
 
@@ -35,6 +35,7 @@ export function HealthStatusCard({
   testResult,
   statusDate,
   windowPeriodMax,
+  newAlert = false,               // <-- NEW
   hideBorder,
 }: Props) {
   const theme = useTheme();
@@ -50,7 +51,14 @@ export function HealthStatusCard({
   const caution = isExposed && base !== 'positive';
 
   return (
-    <View style={[styles.card, hideBorder && styles.noBorder]}>      
+    <View style={[styles.card, hideBorder && styles.noBorder]}>
+      {/* NEW ALERT badge */}
+      {newAlert && (
+        <View style={styles.alertBadge}>
+          <Text style={styles.alertText}>NEW</Text>
+        </View>
+      )}
+
       <View style={styles.row}>
         <View style={styles.textCol}>
           <Text style={[styles.name, { color: theme.title.color }]}>{name}</Text>
@@ -78,9 +86,7 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
     marginRight: 10,
   },
-  noBorder: {
-    borderBottomWidth: 0,
-  },
+  noBorder: { borderBottomWidth: 0 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -90,4 +96,21 @@ const styles = StyleSheet.create({
   textCol: { flex: 1 },
   name: { fontSize: 16, fontWeight: 'bold' },
   label: { fontSize: 14, color: '#555', marginBottom: 2 },
+
+  /* NEW styles for alert badge */
+  alertBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: 'crimson',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  alertText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
 });
