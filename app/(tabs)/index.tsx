@@ -1,15 +1,8 @@
 // app/(tabs)/index.tsx
-/* -------------- imports -------------- */
 import React, { useEffect, useState, useMemo } from 'react';
 import {
-  ActivityIndicator,
-  SafeAreaView,
-  Text,
-  View,
-  Alert,
-  ScrollView,
-  Platform,
-  RefreshControl,
+  ActivityIndicator, SafeAreaView, Text, View, Alert,
+  ScrollView, Platform, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -18,8 +11,9 @@ import { useTheme } from 'styled-components/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useAuth } from '@/src/context/AuthContext';
 import { firebaseApp } from '@/src/firebase/config';
-import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { getFirestore, doc, updateDoc } from 'firebase/firestore';
+import {
+  getStorage, ref, uploadBytes, getDownloadURL, deleteObject,
+} from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useStdis } from '@/hooks/useStdis';
 import SubmitTestResults from '@/components/health/SubmitTestResults';
@@ -42,9 +36,7 @@ export default function HomeScreen() {
   /* ---------- local state ---------- */
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<any>(null);
-  const [healthStatuses, setHealthStatuses] = useState<Record<string, any> | null>(
-    null,
-  );
+  const [healthStatuses, setHealthStatuses] = useState<Record<string, any> | null>(null);
   const isIOS = Platform.OS === 'ios';
   const buttonPaddingBottom = insets.bottom + (isIOS ? 25 : 0);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,20 +50,14 @@ export default function HomeScreen() {
 
   /* ---------- cloud functions ---------- */
   const fns = useMemo(() => getFunctions(firebaseApp), []);
-  const markAlertReadCF = useMemo(() => httpsCallable(fns, 'markHealthAlertRead'), [fns]);
-  const computeHashedIdCF = useMemo(() => httpsCallable(fns, 'computeHashedId'), [fns]);
-  const getPublicProfileCF = useMemo(() => httpsCallable(fns, 'getPublicProfile'), [fns]);
-  const getUserHealthStatusesCF = useMemo(
-    () => httpsCallable(fns, 'getUserHealthStatuses'),
-    [fns],
-  );
+  const markAlertReadCF        = useMemo(() => httpsCallable(fns, 'markHealthAlertRead'),        [fns]);
+  const getPublicProfileCF     = useMemo(() => httpsCallable(fns, 'getPublicProfile'),           [fns]);
+  const updatePublicProfileCF  = useMemo(() => httpsCallable(fns, 'updatePublicProfile'),        [fns]);
+  const getUserHealthStatusesCF= useMemo(() => httpsCallable(fns, 'getUserHealthStatuses'),      [fns]);
 
   /* ---------- profile load ---------- */
   useEffect(() => {
-    if (!user) {
-      router.replace('/Login');
-      return;
-    }
+    if (!user) { router.replace('/Login'); return; }
     (async () => {
       try {
         const res = await getPublicProfileCF({});
@@ -82,9 +68,7 @@ export default function HomeScreen() {
           return;
         }
         Alert.alert('Profile Error', err.message || 'Error loading profile');
-      } finally {
-        setLoading(false);
-      }
+      } finally { setLoading(false); }
     })();
   }, [user]);
 
@@ -97,33 +81,23 @@ export default function HomeScreen() {
     try {
       const res = await getUserHealthStatusesCF({});
       setHealthStatuses(res.data?.statuses || {});
-    } catch (err) {
-      console.error('refreshHealthStatuses:', err);
-    }
+    } catch (err) { console.error('refreshHealthStatuses:', err); }
   }
 
   /* ---------- nav badge ---------- */
   useEffect(() => {
     if (!healthStatuses) return;
-    const count = Object.values(healthStatuses).filter((v: any) => v?.newAlert)
-      .length;
-    navigation.setOptions({ tabBarBadge: count > 0 ? count : undefined });
+    const count = Object.values(healthStatuses).filter((v: any) => v?.newAlert).length;
+    navigation.setOptions({ tabBarBadge: count || undefined });
   }, [healthStatuses, navigation]);
 
   /* ---------- mark-read handler ---------- */
   const handleMarkAlertRead = (stdiId: string) => {
-    setHealthStatuses((prev) => {
-      if (!prev || !prev[stdiId] || !prev[stdiId].newAlert) return prev;
-      return {
-        ...prev,
-        [stdiId]: { ...prev[stdiId], newAlert: false },
-      };
+    setHealthStatuses(prev => {
+      if (!prev || !prev[stdiId]?.newAlert) return prev;
+      return { ...prev, [stdiId]: { ...prev[stdiId], newAlert: false } };
     });
-
-    /* fire-and-forget – no await so UI feels instant */
-    markAlertReadCF({ stdiId }).catch(() => {
-      // optionally log; we silently ignore CF failure
-    });
+    markAlertReadCF({ stdiId }).catch(() => {/* ignore */});
   };
 
   /* ---------- pull-to-refresh ---------- */
@@ -135,19 +109,15 @@ export default function HomeScreen() {
 
   /* ---------- logout ---------- */
   const handleLogout = async () => {
-    try {
-      await logout();
-      router.replace('/Login');
-    } catch (err) {
-      console.error('Logout failed:', err);
-    }
+    try { await logout(); router.replace('/Login'); }
+    catch (err) { console.error('Logout failed:', err); }
   };
 
   /* ---------- loading screen ---------- */
   if (loading || stdisLoading) {
     return (
       <SafeAreaView style={theme.container}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ flex: 1, justifyContent:'center', alignItems:'center' }}>
           <ActivityIndicator color={theme.buttonPrimary.backgroundColor} size="large" />
         </View>
       </SafeAreaView>
@@ -164,11 +134,11 @@ export default function HomeScreen() {
         onLogout={handleLogout}
       />
 
-      <View style={{ flex: 1, paddingHorizontal: 20, paddingTop: 15 }}>
+      <View style={{ flex:1, paddingHorizontal:20, paddingTop:15 }}>
         <Text style={theme.title}>Health Status</Text>
 
         <ScrollView
-          style={{ flex: 1 }}
+          style={{ flex:1 }}
           showsVerticalScrollIndicator
           refreshControl={
             <RefreshControl
@@ -181,19 +151,16 @@ export default function HomeScreen() {
           <HealthStatusArea
             stdis={stdis}
             statuses={healthStatuses}
-            onMarkRead={handleMarkAlertRead}      /* <-- NEW */
+            onMarkRead={handleMarkAlertRead}
           />
         </ScrollView>
       </View>
 
-      <View
-        style={{
-          paddingHorizontal: 20,
-          paddingTop: 8,
-          paddingBottom: buttonPaddingBottom,
-          backgroundColor: isIOS ? 'transparent' : theme.container.backgroundColor,
-        }}
-      >
+      <View style={{
+        paddingHorizontal:20, paddingTop:8,
+        paddingBottom: buttonPaddingBottom,
+        backgroundColor: isIOS ? 'transparent' : theme.container.backgroundColor,
+      }}>
         <ThemedButton
           title="Submit Test Results"
           variant="primary"
@@ -210,23 +177,41 @@ export default function HomeScreen() {
         onSave={handleUpdateProfile}
       />
 
-      <ThemedModal
-        visible={submitTestModalVisible}
-        useBlur
-        onRequestClose={() => setSubmitTestModalVisible(false)}
-      >
-        <SubmitTestResults
-          onClose={() => {
-            setSubmitTestModalVisible(false);
-            refreshHealthStatuses();
-          }}
-        />
+      <ThemedModal visible={submitTestModalVisible} useBlur
+        onRequestClose={() => setSubmitTestModalVisible(false)}>
+        <SubmitTestResults onClose={() => {
+          setSubmitTestModalVisible(false);
+          refreshHealthStatuses();
+        }}/>
       </ThemedModal>
     </SafeAreaView>
   );
 
-  /* ---------- helper: update profile (unchanged) ---------- */
+  /* ---------- helper: update profile ---------- */
   async function handleUpdateProfile(updatedName: string, updatedUri: string) {
-    // (existing implementation intact)
+    try {
+      /* 1. Upload img if it changed */
+      let finalUrl = profileData?.imageUrl || '';
+      if (updatedUri) {
+        const path = `avatars/${user!.uid}/profile.jpg`;   // ← new folder path
+        const bytes = await fetch(updatedUri).then(r => r.blob());
+        await uploadBytes(ref(storage, path), bytes);
+        finalUrl = await getDownloadURL(ref(storage, path));
+      } else {
+        finalUrl = '';            // user removed avatar
+        /* optionally delete the old one:
+        if (profileData?.imageUrl) await deleteObject(ref(storage, profileData.imageUrl));
+        */
+      }
+
+      /* 2. Cloud Function write */
+      await updatePublicProfileCF({ displayName: updatedName, imageUrl: finalUrl });
+
+      /* 3. Refresh local state */
+      setProfileData((p: any) => ({ ...p, displayName: updatedName, imageUrl: finalUrl }));
+      setEditProfileModalVisible(false);
+    } catch (err: any) {
+      Alert.alert('Save Error', err.message || 'Could not update profile.');
+    }
   }
 }
