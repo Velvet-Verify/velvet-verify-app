@@ -13,11 +13,10 @@ const callableOptions: CallableOptions = {
   secrets: ["STANDARD_HASH_KEY", "PROFILE_HASH_KEY"],
 };
 
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
+if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
+/* ---------- return type ---------- */
 interface Connection {
   connectionDocId: string;
   displayName: string | null;
@@ -29,6 +28,7 @@ interface Connection {
   connectionStatus: number;
   senderSUUID: string;
   recipientSUUID: string;
+  newAlert?: boolean;
 }
 
 export const getConnections = onCall(
@@ -42,82 +42,69 @@ export const getConnections = onCall(
         "Must be called while authenticated."
       );
     }
-    // Compute the caller's standard hash (SUUID)
+
+    /* ---------- caller’s SUUID ---------- */
     const userSUUID = await computeHash("standard", request.auth.uid);
     const connectionsRef = db.collection("connections");
 
-    // Accepted connections where the user is the sender.
-    const acceptedSenderQuery = await connectionsRef
-      .where("connectionStatus", "==", 1)
-      .where("connectionLevel", ">=", 2)
-      .where("senderSUUID", "==", userSUUID)
-      .get();
+    /* ---------- queries (unchanged) ---------- */
+    const [
+      acceptedSenderQuery,
+      acceptedRecipientQuery,
+      pendingRecipientQuery,
+      pendingSenderQuery,
+    ] = await Promise.all([
+      connectionsRef
+        .where("connectionStatus", "==", 1)
+        .where("connectionLevel", ">=", 2)
+        .where("senderSUUID", "==", userSUUID)
+        .get(),
+      connectionsRef
+        .where("connectionStatus", "==", 1)
+        .where("connectionLevel", ">=", 2)
+        .where("recipientSUUID", "==", userSUUID)
+        .get(),
+      connectionsRef
+        .where("connectionStatus", "==", 0)
+        .where("connectionLevel", ">=", 2)
+        .where("recipientSUUID", "==", userSUUID)
+        .get(),
+      connectionsRef
+        .where("connectionStatus", "==", 0)
+        .where("connectionLevel", ">=", 3)
+        .where("senderSUUID", "==", userSUUID)
+        .get(),
+    ]);
 
-    // Accepted connections where the user is the recipient.
-    const acceptedRecipientQuery = await connectionsRef
-      .where("connectionStatus", "==", 1)
-      .where("connectionLevel", ">=", 2)
-      .where("recipientSUUID", "==", userSUUID)
-      .get();
-
-    // Pending connections (status 0) where the user is the recipient.
-    const pendingRecipientQuery = await connectionsRef
-      .where("connectionStatus", "==", 0)
-      .where("connectionLevel", ">=", 2)
-      .where("recipientSUUID", "==", userSUUID)
-      .get();
-
-    // Also fetch pending docs (status=0) where the user is the sender
-    const pendingSenderQuery = await connectionsRef
-      .where("connectionStatus", "==", 0)
-      .where("connectionLevel", ">=", 3)
-      .where("senderSUUID", "==", userSUUID)
-      .get();
-
-    // Combine all the documents from the queries.
+    /* ---------- combine & dedupe ---------- */
     const allDocs = [
       ...acceptedSenderQuery.docs,
       ...acceptedRecipientQuery.docs,
       ...pendingRecipientQuery.docs,
       ...pendingSenderQuery.docs,
     ];
+    const unique = new Map<string, admin.firestore.QueryDocumentSnapshot>();
+    allDocs.forEach((d) => unique.set(d.id, d));
+    const docs = Array.from(unique.values());
 
-    // Deduplicate by doc ID
-    const uniqueDocsMap = new Map<string, admin
-      .firestore
-      .QueryDocumentSnapshot>();
-    for (const snap of allDocs) {
-      uniqueDocsMap.set(snap.id, snap); // if same id occurs, it overwrites
-    }
-    const docs = Array.from(uniqueDocsMap.values());
-
+    /* ---------- build results ---------- */
     const connections: Connection[] = [];
 
-    // Process each connection document.
     for (const docSnap of docs) {
       const data = docSnap.data();
 
-      // Figure out which SUUID is the other person's
-      const remoteSUUID = (userSUUID === data.senderSUUID) ?
+      /* remote user’s display / avatar */
+      const remoteSUUID = userSUUID === data.senderSUUID ?
         data.recipientSUUID :
         data.senderSUUID;
-
-      // Compute the remote user's PSUUID
-      const psuuid = await computeHash(
-        "profile", "",
-        remoteSUUID
-      );
-      const profileDoc = await db
-        .collection("publicProfile")
-        .doc(psuuid)
-        .get();
+      const psuuid = await computeHash("profile", "", remoteSUUID);
+      const profileDoc = await db.collection("publicProfile").doc(psuuid).get();
 
       let displayName: string | null = null;
       let imageUrl: string | null = null;
       if (profileDoc.exists) {
-        const profileData = profileDoc.data();
-        displayName = profileData?.displayName || null;
-        imageUrl = profileData?.imageUrl || null;
+        displayName = profileDoc.get("displayName") || null;
+        imageUrl = profileDoc.get("imageUrl") || null;
       }
 
       connections.push({
@@ -125,20 +112,19 @@ export const getConnections = onCall(
         displayName,
         imageUrl,
         createdAt: data.createdAt ?
-          data.createdAt.toDate().toISOString() :
-          null,
-        expiresAt: data.expiresAt ?
-          data.expiresAt.toDate().toISOString() :
-          null,
+          data.createdAt.toDate().toISOString() : null,
         updatedAt: data.updatedAt ?
-          data.updatedAt.toDate().toISOString() :
-          null,
+          data.updatedAt.toDate().toISOString() : null,
+        expiresAt: data.expiresAt ?
+          data.expiresAt.toDate().toISOString() : null,
         connectionLevel: data.connectionLevel,
         connectionStatus: data.connectionStatus,
         senderSUUID: data.senderSUUID,
         recipientSUUID: data.recipientSUUID,
+        newAlert: data.newAlert === true ? true : undefined,
       });
     }
+
     return connections;
   }
 );

@@ -31,10 +31,11 @@ export interface Connection {
   imageUrl: string | null;
   createdAt: string | null;
   updatedAt?: string | null;
-  connectionLevel: number;   // 1=Blocked, 2=New, 3=Fling, 4=Friend, 5=Bond
-  connectionStatus: number;  // 0=pending, 1=active
+  connectionLevel: number;        // 1-5
+  connectionStatus: number;       // 0=pending, 1=active
   senderSUUID: string;
   recipientSUUID: string;
+  newAlert?: boolean;
 }
 interface DisplayConnection extends Connection {
   /* merged pending-elevation extras */
@@ -54,7 +55,7 @@ export default function ConnectionsScreen() {
   const fns     = getFunctions(firebaseApp);
 
   const { user } = useAuth();
-  const { connections, loading, refreshConnections } = useConnections();
+  const { connections, loading, refreshConnections, clearNewAlert } = useConnections();
   const { connectionLevels } = useLookups();
   const { stdis } = useStdis();
 
@@ -64,7 +65,7 @@ export default function ConnectionsScreen() {
   const [selConn,  setSelConn]  = useState<DisplayConnection | null>(null);
   const [showDetails, setShowDetails] = useState(false);
 
-  /* collapsible state for each level group */
+  /* collapsible state per group */
   const [open, setOpen] = useState({
     bond: true, friend: true, fling: true, new: true, blocked: true,
   });
@@ -101,16 +102,36 @@ export default function ConnectionsScreen() {
                                 `Level ${pending.connectionLevel}`,
           pendingLevelId:       pending.connectionLevel,
         });
-      } else if (active)  out.push(active);
-      else if (pending)   out.push(pending);          // brand-new request
+      } else if (active)  {
+        out.push({ ...active });
+      } else if (pending) {
+        out.push({ ...pending });
+      }
     });
     return out;
   }, [connections, connectionLevels]);
 
   /* ---------- helper: does THIS user need to respond? ---------- */
   function needsMyAction(c: DisplayConnection) {
-    return (c.connectionStatus === 0 && c.recipientSUUID === mySUUID) ||
-           (c.pendingDocId && c.pendingRecipientSUUID === mySUUID);
+    return (
+      /* recipient of pending request */
+      (c.connectionStatus === 0 && c.recipientSUUID === mySUUID) ||
+      /* recipient of pending elevation */
+      (c.pendingDocId && c.pendingRecipientSUUID === mySUUID) ||
+      /* sender of newly-accepted request that hasn’t been viewed */
+      (c.connectionStatus === 1 && c.newAlert === true && c.senderSUUID === mySUUID)
+    );
+  }
+
+  function handlePressConnection(c: DisplayConnection) {
+    /* If I’m the sender & newAlert is true, flip locally then call CF */
+    if (c.newAlert === true && c.senderSUUID === mySUUID) {
+      clearNewAlert(c.connectionDocId!);                  // immediate UI update
+      const markSeenCF = httpsCallable(fns, 'markConnectionSeen');
+      markSeenCF({ docId: c.connectionDocId }).catch(console.warn); // fire-and-forget
+    }
+    setSelConn(c);
+    setShowDetails(true);
   }
 
   /* ---------- group rows by active level (or 'New') ---------- */
@@ -122,7 +143,7 @@ export default function ConnectionsScreen() {
     const bonds:   DisplayConnection[] = [];
 
     displayConnections.forEach((c) => {
-      const lvl = c.connectionStatus === 1 ? c.connectionLevel : 2; // pending ⇒ treat as “New”
+      const lvl = c.connectionStatus === 1 ? c.connectionLevel : 2;
       switch (lvl) {
         case 1: blocked.push(c); break;
         case 2: newOnes.push(c); break;
@@ -133,12 +154,6 @@ export default function ConnectionsScreen() {
     });
     return { blocked, newOnes, flings, friends, bonds };
   }, [displayConnections]);
-
-  /* ---------- tab-bar badge = #rows that need my action ---------- */
-  useEffect(() => {
-    const count = displayConnections.filter(needsMyAction).length;
-    nav.setOptions({ tabBarBadge: count ? count : undefined });
-  }, [displayConnections, nav]);
 
   /* ---------- UI helpers ---------- */
   function renderGroup(title: string, data: DisplayConnection[], key: keyof typeof open) {
@@ -155,10 +170,16 @@ export default function ConnectionsScreen() {
         {open[key] && (
           <View style={{ paddingLeft: 10, marginTop: 5 }}>
             {data.map((c) => (
-              <TouchableOpacity key={c.connectionDocId || Math.random().toString()}
-                                activeOpacity={0.7}
-                                onPress={() => { setSelConn(c); setShowDetails(true); }}>
-                <ConnectionItem connection={c} mySUUID={mySUUID} highlight={needsMyAction(c)} />
+              <TouchableOpacity
+                key={c.connectionDocId || Math.random().toString()}
+                activeOpacity={0.7}
+                onPress={() => handlePressConnection(c)}
+              >
+                <ConnectionItem
+                  connection={c}
+                  mySUUID={mySUUID}
+                  highlight={needsMyAction(c)}
+                />
               </TouchableOpacity>
             ))}
           </View>
@@ -177,7 +198,10 @@ export default function ConnectionsScreen() {
   }
 
   const isIOS = Platform.OS === 'ios';
-  const containerStyle = [theme.container, { paddingBottom: isIOS ? insets.bottom + 60 : 15 }];
+  const containerStyle = [
+    theme.container,
+    { paddingBottom: isIOS ? insets.bottom + 60 : 15 },
+  ];
 
   return (
     <View style={containerStyle}>
@@ -185,8 +209,13 @@ export default function ConnectionsScreen() {
 
       <FlatList
         data={[]} renderItem={() => null} keyExtractor={() => Math.random().toString()}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshConnections}
-                         tintColor={theme.buttonPrimary.backgroundColor} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={refreshConnections}
+            tintColor={theme.buttonPrimary.backgroundColor}
+          />
+        }
         ListEmptyComponent={
           <View>
             {renderGroup('Bonded Partners', groups.bonds,   'bond')}
@@ -204,10 +233,16 @@ export default function ConnectionsScreen() {
         }
       />
 
-      <ThemedButton title="New Connection" variant="primary"
-                    onPress={() => setNewModal(true)} />
+      <ThemedButton
+        title="New Connection"
+        variant="primary"
+        onPress={() => setNewModal(true)}
+      />
 
-      <NewConnection visible={newModal} onClose={() => setNewModal(false)} />
+      <NewConnection
+        visible={newModal}
+        onClose={() => setNewModal(false)}
+      />
 
       {selConn && (
         <ConnectionDetailsModal

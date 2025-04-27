@@ -52,6 +52,7 @@ export const updateConnectionStatus = onCall(
       connectionStatus: number;
       updatedAt: FirebaseFirestore.FieldValue;
       connectedAt: FirebaseFirestore.FieldValue;
+      newAlert: boolean;
     }> = {
       connectionStatus: newStatus,
       updatedAt: now,
@@ -59,6 +60,7 @@ export const updateConnectionStatus = onCall(
 
     /* ---------- accept logic ---------- */
     if (newStatus === 1) {
+      updateFields.newAlert = true;
       if (!data.connectedAt) updateFields.connectedAt = now;
 
       /* --------------------------------------------------------------

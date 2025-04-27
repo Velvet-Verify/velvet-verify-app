@@ -10,13 +10,14 @@ export interface Connection {
   createdAt:   any;
   updatedAt?:  any;
   connectionLevel:  number;
-  connectionStatus: number;  // 0=pending, 1=active
-  senderSUUID:   string;
-  recipientSUUID:string;
+  connectionStatus: number;      // 0=pending, 1=active
+  senderSUUID:      string;
+  recipientSUUID:   string;
+  newAlert?:        boolean;     // <-- ADDED
 
   /* extras for pending-elevation merge */
-  pendingDocId?: string;
-  pendingSenderSUUID?: string;
+  pendingDocId?:          string;
+  pendingSenderSUUID?:    string;
   pendingRecipientSUUID?: string;
 }
 
@@ -26,19 +27,21 @@ interface Props {
   highlight?: boolean;
 }
 
-export function ConnectionItem({ connection, mySUUID, highlight=false }: Props) {
+export function ConnectionItem({ connection, mySUUID, highlight = false }: Props) {
   const theme = useTheme();
   const displayName = connection.displayName || 'Unknown';
 
   /* -------- subtitle (date or status) -------- */
   const dateStr = formatDate(connection.updatedAt ?? connection.createdAt);
-
   let subtitle: string | null = dateStr;
 
   // Show “Request Sent / Elevation Request Sent” to the **sender** only
   if (connection.connectionStatus === 0 && connection.senderSUUID === mySUUID) {
     subtitle = 'Request Sent';
-  } else if (connection.pendingDocId && connection.pendingSenderSUUID === mySUUID) {
+  } else if (
+    connection.pendingDocId &&
+    connection.pendingSenderSUUID === mySUUID
+  ) {
     subtitle = 'Elevation Request Sent';
   }
 
@@ -50,13 +53,17 @@ export function ConnectionItem({ connection, mySUUID, highlight=false }: Props) 
         </View>
       )}
 
-      {connection.imageUrl
-        ? <Image source={{ uri: connection.imageUrl }} style={styles.avatar} />
-        : <View style={styles.placeholder} />}
+      {connection.imageUrl ? (
+        <Image source={{ uri: connection.imageUrl }} style={styles.avatar} />
+      ) : (
+        <View style={styles.placeholder} />
+      )}
 
       <View style={styles.info}>
         <Text style={[theme.bodyText, styles.name]}>{displayName}</Text>
-        {subtitle && <Text style={[theme.bodyText, styles.sub]}>{subtitle}</Text>}
+        {subtitle && (
+          <Text style={[theme.bodyText, styles.sub]}>{subtitle}</Text>
+        )}
       </View>
     </View>
   );
@@ -66,26 +73,48 @@ export function ConnectionItem({ connection, mySUUID, highlight=false }: Props) 
 function formatDate(v: any): string | null {
   if (!v) return null;
   let d: Date | null = null;
-  if (v instanceof Timestamp)                d = v.toDate();
-  else if (typeof v === 'object' && v.seconds) d = new Date(v.seconds * 1000);
+  if (v instanceof Timestamp) d = v.toDate();
+  else if (typeof v === 'object' && v.seconds)
+    d = new Date(v.seconds * 1000);
   else if (typeof v === 'string') {
-    const p = new Date(v); if (!isNaN(p.getTime())) d = p;
+    const p = new Date(v);
+    if (!isNaN(p.getTime())) d = p;
   }
-  return d ? d.toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }) : null;
+  return d
+    ? d.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : null;
 }
 
 /* -------- styles -------- */
 const styles = StyleSheet.create({
-  row: { flexDirection:'row', alignItems:'center', marginVertical:8 },
-  highlight: { backgroundColor:'#fffbe6' },
+  row: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
+  highlight: { backgroundColor: '#fffbe6' },
 
-  avatar:     { width:50, height:50, borderRadius:25, marginRight:10 },
-  placeholder:{ width:50, height:50, borderRadius:25, marginRight:10, backgroundColor:'#ccc' },
-  info:       { flex:1 },
-  name:       { fontWeight:'bold', marginBottom:2 },
-  sub:        { fontSize:14, opacity:0.8, marginTop:2 },
+  avatar: { width: 50, height: 50, borderRadius: 25, marginRight: 10 },
+  placeholder: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 10,
+    backgroundColor: '#ccc',
+  },
+  info: { flex: 1 },
+  name: { fontWeight: 'bold', marginBottom: 2 },
+  sub: { fontSize: 14, opacity: 0.8, marginTop: 2 },
 
-  badge:{ position:'absolute', top:2, right:2, backgroundColor:'crimson',
-          paddingHorizontal:6, paddingVertical:2, borderRadius:4, zIndex:1 },
-  badgeText:{ color:'#fff', fontSize:10, fontWeight:'bold' },
+  badge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: 'crimson',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
 });
