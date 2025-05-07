@@ -1,27 +1,6 @@
 /* eslint-disable max-len, no-irregular-whitespace, require-jsdoc, @typescript-eslint/no-explicit-any */
 // functions/src/health/submitTestResults.ts
-/** submitTestResults (v3 – adds positive‑alert → exposure propagation)
- * ------------------------------------------------------------------
- * Accepts an array of `{ stdiId, result:boolean, testDate:string }` where
- *   • `result === true`  -> Positive (code 3)
- *   • `result === false` -> Negative (code 1)
- *
- * Business rules implemented (current → incoming):
- * ┌──────────────────────────────────────────────────────────────────────────────┐
- * │ 3 Positive  + Positive  →  history‑only                                     │
- * │ 3 Positive  + Negative  →  if treatmentPeriodMin exists AND                 │
- * │                                 testDate ≥ statusDate + treatmentPeriodMin │
- * │                              ↳ flip to 1 Negative                           │
- * │ 2 Exposed   + Positive  →  always flip to 3 Positive                        │
- * │ 2 Exposed   + Negative  →  if windowPeriodMax exists AND                    │
- * │                                 testDate ≥ statusDate + windowPeriodMax    │
- * │                              ↳ flip to 1 Negative                           │
- * │ 0/1 None/Neg + 1/3       →  if testDate ≥ statusDate (or no statusDate)     │
- * │                              ↳ copy incoming status/date                    │
- * └──────────────────────────────────────────────────────────────────────────────┘
- * Submitting a "Not Tested" (code 0) is filtered out on the client and never
- * reaches this Cloud Function.
- */
+// v4 – splits statusDate → testDate + testAfter and adds new decision rules
 
 import {
   onCall,
@@ -42,20 +21,18 @@ import {
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
-/* ------------------------------------------------------------------ */
-/* Types                                                              */
-/* ------------------------------------------------------------------ */
+/* ─────────────────────────────── TYPES ────────────────────────────── */
 interface STDIResult {
   stdiId: string;
-  result: boolean; // true = positive (3) ; false = negative (1)
-  testDate: string; // ISO 8601 date string
+  result: boolean; // true  = positive  (→ status 3)
+                            // false = negative  (→ status 1)
+  testDate: string; // ISO-8601 date string
 }
 interface Payload { results: STDIResult[] }
 interface STDIInfo {
-  windowPeriodMax?: number; // days until infection is detectable
+  windowPeriodMax?: number; // days until infection detectable
   treatmentPeriodMin?: number; // days until cure can be verified
 }
-
 interface PartnerInfo {
   suuid: string;
   esuuid: string;
@@ -64,9 +41,7 @@ interface PartnerInfo {
   lastConnectionDate: Date | null;
 }
 
-/* ------------------------------------------------------------------ */
-/* Callable options                                                   */
-/* ------------------------------------------------------------------ */
+/* ────────────────────────── CALLABLE OPTIONS ──────────────────────── */
 const opts: CallableOptions = {
   cors: "*",
   secrets: [
@@ -78,9 +53,7 @@ const opts: CallableOptions = {
   ],
 };
 
-/* ------------------------------------------------------------------ */
-/* Helper: coerce Firestore Timestamp / JSON → JS Date                */
-/* ------------------------------------------------------------------ */
+/* ──────────────────────────── UTILITIES ───────────────────────────── */
 function toJsDate(val: any): Date | null {
   if (!val) return null;
   if (val instanceof Date) return val;
@@ -95,17 +68,12 @@ function toJsDate(val: any): Date | null {
   return null;
 }
 
-/* ------------------------------------------------------------------ */
-/* Helper: build once‑per‑call map of partner info                    */
-/* ------------------------------------------------------------------ */
-async function buildPartnerDirectory(
-  callerSUUID: string
-): Promise<Map<string, PartnerInfo>> {
+/* ─────────── Build map of partner data (level-≥3 connections) ─────── */
+async function buildPartnerDirectory(callerSUUID: string): Promise<Map<string, PartnerInfo>> {
   const partnerMap = new Map<string, PartnerInfo>();
-
   const qBase = db.collection("connections")
     .where("connectionLevel", ">=", 3)
-    .where("connectionStatus", "in", [1, 4]); // active or deactivated
+    .where("connectionStatus", "in", [1, 4]);
 
   const [outSnap, inSnap] = await Promise.all([
     qBase.where("senderSUUID", "==", callerSUUID).get(),
@@ -113,334 +81,308 @@ async function buildPartnerDirectory(
   ]);
 
   function ingest(doc: admin.firestore.QueryDocumentSnapshot) {
-    const data = doc.data();
-    const partnerSUUID: string = data.senderSUUID === callerSUUID ? data.recipientSUUID : data.senderSUUID;
-    let info = partnerMap.get(partnerSUUID);
-    const updAt = toJsDate(data.updatedAt);
-    const level: number = data.connectionLevel;
-    const status: number = data.connectionStatus;
+    const d = doc.data();
+    const peer = d.senderSUUID === callerSUUID ? d.recipientSUUID : d.senderSUUID;
+    let info = partnerMap.get(peer);
+    const updAt = toJsDate(d.updatedAt);
+    const lvl = d.connectionLevel as number;
+    const cStat = d.connectionStatus as number;
 
     if (!info) {
       info = {
-        suuid: partnerSUUID,
-        esuuid: "", // to be filled later
-        hsuuid: "", // to be filled later
+        suuid: peer,
+        esuuid: "",
+        hsuuid: "",
         currentActiveOngoing: false,
         lastConnectionDate: updAt ?? null,
       };
-      partnerMap.set(partnerSUUID, info);
+      partnerMap.set(peer, info);
     }
-
     if (updAt && (!info.lastConnectionDate || updAt > info.lastConnectionDate)) {
       info.lastConnectionDate = updAt;
     }
 
-    if (status === 1 && level >= 4) {
-      info.currentActiveOngoing = true;
-    }
+    if (cStat === 1 && lvl >= 4) info.currentActiveOngoing = true;
   }
 
-  outSnap.forEach(ingest);
-  inSnap.forEach(ingest);
+  outSnap.forEach(ingest); inSnap.forEach(ingest);
 
-  // compute hash ids (parallel)
-  await Promise.all(Array.from(partnerMap.values()).map(async (pi) => {
-    [pi.esuuid, pi.hsuuid] = await Promise.all([
-      computeHash("exposure", "", pi.suuid),
-      computeHash("health", "", pi.suuid),
+  await Promise.all([...partnerMap.values()].map(async (p) => {
+    [p.esuuid, p.hsuuid] = await Promise.all([
+      computeHash("exposure", "", p.suuid),
+      computeHash("health", "", p.suuid),
     ]);
   }));
 
-  // re‑index by ESUUID because alerts store that
-  const esMap = new Map<string, PartnerInfo>();
-  partnerMap.forEach((v) => esMap.set(v.esuuid, v));
-  return esMap;
+  const byES = new Map<string, PartnerInfo>();
+  partnerMap.forEach((v) => byES.set(v.esuuid, v));
+  return byES;
 }
 
-/* ------------------------------------------------------------------ */
-/* Helper: apply positive alerts → mark recipient exposed             */
-/* ------------------------------------------------------------------ */
+/* ─────────── positive-alert helper (still uses status 2 logic) ────── */
+/* (untouched for now – will migrate to exposureDate in the next step)  */
 async function applyPositiveAlerts(
   senderSUUID: string,
   positives: Array<{ recipientESUUID: string; stdiId: string }>,
   stdiMeta: Map<string, STDIInfo>,
-  ts: admin.firestore.FieldValue,
+  serverTS: admin.firestore.FieldValue,
 ): Promise<void> {
-  if (positives.length === 0) return;
+  if (!positives.length) return;
 
   const partnerDir = await buildPartnerDirectory(senderSUUID);
 
-  // Process each (recipient, STDI) combo in its own txn to avoid batch read limits
   for (const {recipientESUUID, stdiId} of positives) {
     const partner = partnerDir.get(recipientESUUID);
-    if (!partner) continue; // not in current/historic L3+ list
-    const hsDocId = `${partner.hsuuid}_${stdiId}`;
-    const hsRef = db.collection("healthStatus").doc(hsDocId);
+    if (!partner) continue;
+
+    const hsRef = db.doc(`healthStatus/${partner.hsuuid}_${stdiId}`);
     const meta = stdiMeta.get(stdiId) || {};
 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(hsRef);
-      const curStatus: number = snap.exists ? (snap.get("healthStatus") as number ?? 0) : 0;
-      const curDate : Date | null = snap.exists ? toJsDate(snap.get("statusDate")) : null;
+      const curStatus = snap.exists ? (snap.get("healthStatus") as number ?? 0) : 0;
 
-      let shouldUpdate = false;
-      const newStatus = 2; // Exposed
+      /* Only set to 2 (Exposed) if not already 3 (Positive) */
+      if (curStatus === 3) return;
 
-      switch (curStatus) {
-      case 3: // already positive – nothing
-        break;
-      case 0: // not tested → exposed
-      case 2: // already exposed → refresh date
-        shouldUpdate = true;
-        break;
-      case 1: { // negative
-        if (partner.currentActiveOngoing) {
-          shouldUpdate = true;
-        } else {
-          const window = meta.windowPeriodMax ?? 0;
-          if (window === 0 || !partner.lastConnectionDate) {
-            shouldUpdate = true;
-          } else {
-            const cutoff = new Date(partner.lastConnectionDate);
-            cutoff.setDate(cutoff.getDate() + window);
-            if (!curDate || curDate < cutoff) shouldUpdate = true;
-          }
-        }
-        break;
-      }
-      default:
-        shouldUpdate = true;
-      }
-
-      if (shouldUpdate) {
-        tx.set(
-          hsRef,
-          {
-            healthStatus: newStatus,
-            statusDate: admin.firestore.Timestamp.now(),
-            updatedAt: ts,
-          },
-          {merge: true},
-        );
-      }
+      tx.set(
+        hsRef,
+        {
+          healthStatus: 2,
+          // keep earliest exposure logic for now – will revisit when exposureDate lands
+          testDate: admin.firestore.Timestamp.now(),
+          // compute/refresh testAfter (windowPeriodMax)
+          testAfter: meta.windowPeriodMax != null ?
+            admin.firestore.Timestamp
+              .fromMillis(Date.now() + meta.windowPeriodMax * 864e5) :
+            null,
+          updatedAt: serverTS,
+        },
+        {merge: true},
+      );
     });
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Main callable                                                      */
-/* ------------------------------------------------------------------ */
+/* ──────────────────────── MAIN CALLABLE ───────────────────────────── */
 export const submitTestResults = onCall(opts, async (req: CallableRequest<Payload>) => {
-  /* ---------- auth & args ---------- */
+  /* ---------- validate auth / payload ---------- */
   if (!req.auth) throw new HttpsError("unauthenticated", "Auth required");
   const {uid} = req.auth;
   const results = req.data?.results;
-  if (!Array.isArray(results) || results.length === 0) {
+  if (!Array.isArray(results) || !results.length) {
     throw new HttpsError("invalid-argument", "results array is required");
   }
 
-  /* ---------- hashes ---------- */
+  const serverTS = admin.firestore.FieldValue.serverTimestamp();
+
+  /* ---------- caller hash IDs ---------- */
   const suuid = await computeHash("standard", uid);
   const hsuuid = await computeHash("health", "", suuid);
   const esuuid = await computeHash("exposure", "", suuid);
 
-  /* ---------- STDI metadata ---------- */
-  const stdiIds = Array.from(new Set(results.map((r) => r.stdiId)));
-  const metaSnaps = await Promise.all(
-    stdiIds.map((id) => db.collection("STDI").doc(id).get()),
-  );
+  /* ---------- STDI meta lookup ---------- */
+  const stdiIds = [...new Set(results.map((r) => r.stdiId))];
+  const metaSnaps = await Promise.all(stdiIds.map((id) => db.doc(`STDI/${id}`).get()));
   const stdiMeta = new Map<string, STDIInfo>();
-  metaSnaps.forEach((snap) => {
-    if (snap.exists) stdiMeta.set(snap.id, snap.data() as STDIInfo);
+  metaSnaps.forEach((s) => {
+    if (s.exists) stdiMeta.set(s.id, s.data() as STDIInfo);
   });
 
-  const tsNow = admin.firestore.FieldValue.serverTimestamp();
-
-  /* ------------------------------------------------------------------ */
-  /* 1. persist testResults history                                     */
-  /* ------------------------------------------------------------------ */
+  /* ─────────── 1. persist testResults history ─────────── */
   const tsuuid = await computeHash("test", "", suuid);
-  const batchHistory = db.batch();
-  results.forEach((r) => {
-    batchHistory.set(db.collection("testResults").doc(), {
-      TSUUID: tsuuid,
-      STDI: r.stdiId,
-      result: r.result,
-      testDate: new Date(r.testDate),
-      createdAt: tsNow,
-    });
-  });
-  await batchHistory.commit();
+  const hist = db.batch();
+  results.forEach((r) => hist.set(db.collection("testResults").doc(), {
+    TSUUID: tsuuid,
+    STDI: r.stdiId,
+    result: r.result,
+    testDate: new Date(r.testDate),
+    createdAt: serverTS,
+  }));
+  await hist.commit();
 
-  /* ------------------------------------------------------------------ */
-  /* 2. update each healthStatus doc via txn                             */
-  /* ------------------------------------------------------------------ */
+  /* ─────────── 2. update healthStatus docs ─────────── */
   const negatives: STDIResult[] = [];
-  const testedMap = new Map<string, { result: boolean; testDate: string }>();
+  const resultMap = new Map<string, { result: boolean; testDate: string }>();
 
   for (const r of results) {
-    const healthDocId = `${hsuuid}_${r.stdiId}`;
-    const healthRef = db.collection("healthStatus").doc(healthDocId);
-    const incomingStatus = r.result ? 3 : 1;
-    const incomingDate = new Date(r.testDate);
-    testedMap.set(r.stdiId, {result: r.result, testDate: r.testDate});
-
-    if (!r.result) negatives.push(r);
+    const docId = `${hsuuid}_${r.stdiId}`;
+    const hsRef = db.doc(`healthStatus/${docId}`);
+    const isPos = r.result;
+    const incomingTS = new Date(r.testDate);
+    resultMap.set(r.stdiId, {result: r.result, testDate: r.testDate});
+    if (!isPos) negatives.push(r);
 
     await db.runTransaction(async (tx) => {
-      const snap = await tx.get(healthRef);
-      const currentStatus: number = snap.exists ? (snap.get("healthStatus") as number) ?? 0 : 0;
-      const currentDate : Date | null = snap.exists ? toJsDate(snap.get("statusDate")) : null;
+      const snap = await tx.get(hsRef);
+      const curStatus = snap.exists ? (snap.get("healthStatus") as number ?? 0) : 0;
+      const curTestDate = snap.exists ? toJsDate(snap.get("testDate")) : null;
+      const curTestAfter = snap.exists ? toJsDate(snap.get("testAfter")) : null;
 
-      let shouldUpdate = false;
-      let newStatus = currentStatus;
-      let newDate = currentDate ?? incomingDate;
+      /* — universal “old sample” guard — */
+      if (curStatus !== 0 && curTestDate && incomingTS < curTestDate) return;
+
+      let newStatus = curStatus;
+      let writeTest = curTestDate ?? incomingTS; // fallback for brand-new docs
+      let writeAfter = curTestAfter ?? null;
+      let shouldWrite = false;
 
       const meta = stdiMeta.get(r.stdiId) || {};
+      const windowMax = meta.windowPeriodMax ?? null;
+      const treatMin = meta.treatmentPeriodMin ?? null;
 
-      switch (currentStatus) {
-      case 3:
-        if (incomingStatus === 1 && currentDate && meta.treatmentPeriodMin != null) {
-          const clearance = new Date(currentDate);
-          clearance.setDate(clearance.getDate() + meta.treatmentPeriodMin);
-          if (incomingDate >= clearance) {
-            shouldUpdate = true;
-            newStatus = 1;
-            newDate = incomingDate;
-          }
-        }
-        break;
-      case 2:
-        if (incomingStatus === 3) {
-          shouldUpdate = true;
+      /* --------------- DECISION TREE --------------- */
+      switch (curStatus) {
+      case 0: /* 0 → 1 / 3 */
+      case 1: /* 1 → 3 or 1 */
+      case 2: {/* 2 → 3 handled same as 0/1 */
+        if (isPos) { // → 3
           newStatus = 3;
-          newDate = incomingDate;
-        } else if (incomingStatus === 1 && currentDate && meta.windowPeriodMax != null) {
-          const detectable = new Date(currentDate);
-          detectable.setDate(detectable.getDate() + meta.windowPeriodMax);
-          if (incomingDate >= detectable) {
-            shouldUpdate = true;
+          writeTest = incomingTS;
+          writeAfter = treatMin != null ? new Date(+incomingTS + treatMin * 864e5) : null;
+          shouldWrite = true;
+        } else if (curStatus === 0) { // 0 → 1
+          newStatus = 1;
+          writeTest = incomingTS;
+          writeAfter = null;
+          shouldWrite = true;
+        } else if (curStatus === 1) { // 1 → 1 (refresh date)
+          if (!curTestDate || incomingTS >= curTestDate) {
+            writeTest = incomingTS;
+            shouldWrite = true;
+          }
+        } else {/* curStatus 2, incoming negative */
+          /* Need a testAfter deadline;
+               if absent, attempt on-the-fly compute using windowPeriodMax */
+          let after = writeAfter;
+          if (!after && windowMax != null) {
+            // fallback to curTestDate as stand-in for exposureDate until it lands
+            after = curTestDate ?
+              new Date(+curTestDate + windowMax * 864e5) :
+              null;
+          }
+
+          if (after && incomingTS >= after) { // clear exposure
             newStatus = 1;
-            newDate = incomingDate;
+            writeTest = incomingTS;
+            writeAfter = null;
+            shouldWrite = true;
+          } else if (!after) {
+            // no valid clearance window yet → only refresh testDate
+            writeTest = incomingTS;
+            shouldWrite = true;
           }
         }
         break;
-      case 0:
-        shouldUpdate = true;
-        newStatus = incomingStatus;
-        newDate = incomingDate;
-        break;
-      case 1:
-        if (!currentDate || incomingDate >= currentDate) {
-          shouldUpdate = true;
-          newStatus = incomingStatus;
-          newDate = incomingDate;
-        }
-        break;
-      default:
-        if (!currentDate || incomingDate >= currentDate) {
-          shouldUpdate = true;
-          newStatus = incomingStatus;
-          newDate = incomingDate;
-        }
       }
 
-      if (shouldUpdate) {
-        tx.set(
-          healthRef,
-          {
-            healthStatus: newStatus,
-            statusDate: newDate,
-            updatedAt: tsNow,
-          },
-          {merge: true},
-        );
+      case 3: { // current positive
+        if (isPos) { // 3 → 3 (refresh date)
+          writeTest = incomingTS;
+          shouldWrite = true;
+        } else { // 3 → 1 (clear?)
+          if (writeAfter && incomingTS >= writeAfter) {
+            newStatus = 1;
+            writeTest = incomingTS;
+            writeAfter = null;
+            shouldWrite = true;
+          }
+        }
+        break;
+      }
+
+      default: { // any unknown legacy status
+        newStatus = isPos ? 3 : 1;
+        writeTest = incomingTS;
+        writeAfter = isPos && treatMin != null ?
+          new Date(+incomingTS + treatMin * 864e5) :
+          null;
+        shouldWrite = true;
+      }
+      }
+
+      /* --------------- COMMIT --------------- */
+      if (shouldWrite) {
+        tx.set(hsRef, {
+          healthStatus: newStatus,
+          testDate: writeTest,
+          testAfter: writeAfter ?? null, // keep the field present
+          updatedAt: serverTS,
+        }, {merge: true});
       }
     });
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 3. propagate fresher negatives to bonded partners                  */
-  /* ------------------------------------------------------------------ */
+  /* ─────────── 3. inherit fresher negatives to bonded partners ────── */
   if (negatives.length) {
-    await inheritNegativesForBondedPartners(suuid, negatives, tsNow);
+    await inheritNegativesForBondedPartners(suuid, negatives, serverTS);
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 4. update exposureAlert docs                                       */
-  /* ------------------------------------------------------------------ */
-  await updateExposureAlerts(suuid, esuuid, testedMap, stdiMeta, tsNow);
+  /* ─────────── 4. update exposureAlert docs (unchanged for now) ───── */
+  await updateExposureAlerts(suuid, esuuid, resultMap, stdiMeta, serverTS);
 
   return {success: true};
 });
 
-/* ------------------------------------------------------------------ */
-/* Partner‑inheritance helper (negatives)                              */
-/* ------------------------------------------------------------------ */
+/* ───────── inherit negatives (status 1) to level-5 partners ───────── */
 interface PartnerHealthDoc {
   healthStatus?: number;
-  statusDate?: admin.firestore.Timestamp | { seconds: number } | string;
+  testDate?: admin.firestore.Timestamp | { seconds: number } | string;
 }
 
 async function inheritNegativesForBondedPartners(
   callerSUUID: string,
   negatives: STDIResult[],
-  ts: admin.firestore.FieldValue,
+  serverTS: admin.firestore.FieldValue,
 ): Promise<void> {
-  if (negatives.length === 0) return;
+  if (!negatives.length) return;
 
-  /* 1. gather level‑5 partner SUUIDs */
+  /* 1. find level-5 active partners */
   const partners = new Set<string>();
-  const [snapOut, snapIn] = await Promise.all([
+  const [snapA, snapB] = await Promise.all([
     db.collection("connections")
       .where("senderSUUID", "==", callerSUUID)
       .where("connectionStatus", "==", 1)
-      .where("connectionLevel", "==", 5)
-      .get(),
+      .where("connectionLevel", "==", 5).get(),
     db.collection("connections")
       .where("recipientSUUID", "==", callerSUUID)
       .where("connectionStatus", "==", 1)
-      .where("connectionLevel", "==", 5)
-      .get(),
+      .where("connectionLevel", "==", 5).get(),
   ]);
-  snapOut.forEach((d) => partners.add(d.get("recipientSUUID")));
-  snapIn.forEach((d) => partners.add(d.get("senderSUUID")));
-  if (partners.size === 0) return;
+  snapA.forEach((d) => partners.add(d.get("recipientSUUID")));
+  snapB.forEach((d) => partners.add(d.get("senderSUUID")));
+  if (!partners.size) return;
 
-  /* 2. pre‑compute each partner’s HSUUID */
-  const hCache = new Map<string, string>();
-  await Promise.all(Array.from(partners).map(async (su) => hCache.set(su, await computeHash("health", "", su))));
+  /* 2. compute their HSUUIDs */
+  const hsMap = new Map<string, string>();
+  await Promise.all([...partners].map(async (s) =>
+    hsMap.set(s, await computeHash("health", "", s))));
 
   /* 3. conditional updates */
-  const batch = db.batch();
-  let wrote = false;
-
-  function toMillis(val: any): number {
-    const d = toJsDate(val);
-    return d ? d.getTime() : NaN;
-  }
+  const batch = db.batch(); let any = false;
+  const ms = (v: any) => {
+    const d = toJsDate(v); return d ? d.getTime() : NaN;
+  };
 
   for (const partnerSUUID of partners) {
-    const partnerHSUUID = hCache.get(partnerSUUID);
-    if (!partnerHSUUID) continue;
+    const phsuuid = hsMap.get(partnerSUUID);
+    if (!phsuuid) continue;
 
     for (const {stdiId, testDate} of negatives) {
-      const ref = db.collection("healthStatus").doc(`${partnerHSUUID}_${stdiId}`);
+      const ref = db.doc(`healthStatus/${phsuuid}_${stdiId}`);
       const snap = await ref.get();
       if (!snap.exists) continue;
 
       const data = snap.data() as PartnerHealthDoc;
-      if (data.healthStatus !== 1 || !data.statusDate) continue;
+      if (data.healthStatus !== 1 || !data.testDate) continue;
 
-      const prevMs = toMillis(data.statusDate);
-      const newMs = new Date(testDate).getTime();
-      if (isNaN(prevMs) || prevMs >= newMs) continue;
-
-      batch.set(ref, {statusDate: new Date(testDate), updatedAt: ts}, {merge: true});
-      wrote = true;
+      if (ms(data.testDate) < new Date(testDate).getTime()) {
+        batch.set(ref, {testDate: new Date(testDate), updatedAt: serverTS}, {merge: true});
+        any = true;
+      }
     }
   }
-  if (wrote) await batch.commit();
+  if (any) await batch.commit();
 }
 
 /* ------------------------------------------------------------------ */
@@ -451,7 +393,7 @@ async function updateExposureAlerts(
   senderESUUID: string,
   testedMap: Map<string, { result: boolean; testDate: string }>,
   stdiMeta: Map<string, STDIInfo>,
-  ts: admin.firestore.FieldValue,
+  serverTimestamp: admin.firestore.FieldValue,
 ): Promise<void> {
   if (testedMap.size === 0) return;
 
@@ -479,7 +421,7 @@ async function updateExposureAlerts(
       batch1.update(doc.ref, {
         status: newStatus,
         testDate: info.testDate,
-        updatedAt: ts,
+        updatedAt: serverTimestamp,
       });
       if (newStatus === 2) {
         positivesSent.push({recipientESUUID: doc.get("recipient") as string, stdiId: stdi});
@@ -490,7 +432,7 @@ async function updateExposureAlerts(
 
   /* ---------- step 2 : apply positives to recipients ---------- */
   if (positivesSent.length) {
-    await applyPositiveAlerts(senderSUUID, positivesSent, stdiMeta, ts);
+    await applyPositiveAlerts(senderSUUID, positivesSent, stdiMeta, serverTimestamp);
   }
 
   /* ---------- step 3 : fresh alerts for NEW NEGATIVES ---------- */
@@ -529,8 +471,8 @@ async function updateExposureAlerts(
 
   /* write fresh alerts */
   const batch2 = db.batch();
-  partnerSUUIDs.forEach((suid) => {
-    const recipES = esCache.get(suid);
+  partnerSUUIDs.forEach((su) => {
+    const recipES = esCache.get(su);
     if (!recipES) return;
     negatives.forEach((stdi) => {
       batch2.set(db.collection("exposureAlerts").doc(), {
@@ -538,8 +480,8 @@ async function updateExposureAlerts(
         recipient: recipES,
         STDI: stdi,
         status: 1,
-        createdAt: ts,
-        updatedAt: ts,
+        createdAt: serverTimestamp,
+        updatedAt: serverTimestamp,
       });
     });
   });

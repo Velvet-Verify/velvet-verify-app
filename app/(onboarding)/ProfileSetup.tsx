@@ -96,7 +96,8 @@ export default function ProfileSetup() {
           {
             stdiId: d.id,
             healthStatus: 0,
-            statusDate: now,
+            testDate: now,
+            exposureDate: now,
             createdAt: now,
             newAlert: false
           },

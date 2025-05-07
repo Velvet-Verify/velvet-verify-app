@@ -14,7 +14,10 @@ export default ({ config }) => {
       testHashKey: process.env.TEST_HASH_KEY,
       healthHashKey: process.env.HEALTH_HASH_KEY,
       exposureHashKey: process.env.EXPOSURE_HASH_KEY,
-      membershipHashKey: process.env.MEMBERSHIP_HASH_KEY
+      membershipHashKey: process.env.MEMBERSHIP_HASH_KEY,
+      eas: {
+        projectId: 'd5ec91cd-e627-4c28-926d-1891bd420c29',
+      },
     },
   };
 };

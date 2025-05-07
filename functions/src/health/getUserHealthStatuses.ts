@@ -20,23 +20,26 @@ interface GetUserHealthStatusesData {
 }
 
 /* ------------------------------------------------------------------ */
-/* Firestore schema (condensed v2)                                    */
+/* Firestore schema (v3)                                              */
 /* ------------------------------------------------------------------ */
 interface FirestoreHealthData {
   /** 0 = Not Tested, 1 = Negative, 2 = Exposed, 3 = Positive          */
   healthStatus?: number;
-  /** Firestore Timestamp | JS Date                                   */
-  statusDate?: admin.firestore.Timestamp | Date;
+  /** New per-status date fields                                       */
+  testDate?: admin.firestore.Timestamp | Date | null;
+  exposureDate?: admin.firestore.Timestamp | Date | null;
+  testAfter?: admin.firestore.Timestamp | Date | null;
   /** accommodate any future / unknown fields                         */
   [key: string]: unknown;
 }
 
 /**
- * Shape returned to the front‑end.
- * `statusDate` is formatted (ISO YYYY‑MM‑DD) or masked / null.
+ * Object returned to the front-end.
+ * `statusDate` is always either a formatted string or null,
+ * so the UI stays unaware of which underlying field was used.
  */
 interface TransformedHealthData
-  extends Omit<FirestoreHealthData, "statusDate"> {
+  extends Omit<FirestoreHealthData, "testDate" | "exposureDate"> {
   statusDate?: string | null;
 }
 
@@ -59,7 +62,10 @@ export const getUserHealthStatuses = onCall(
   async (request: CallableRequest<GetUserHealthStatusesData>) => {
     /* ---------- auth ---------- */
     if (!request.auth) {
-      throw new HttpsError("unauthenticated", "Must be called while authenticated.");
+      throw new HttpsError(
+        "unauthenticated",
+        "Must be called while authenticated.",
+      );
     }
 
     /* ---------- inputs ---------- */
@@ -81,23 +87,30 @@ export const getUserHealthStatuses = onCall(
     const statuses: Record<string, TransformedHealthData> = {};
 
     snap.forEach((docSnap) => {
-      // id format: HUUID_stdiId
+      // id format: HSUUID_stdiId
       const [, stdiId] = docSnap.id.split("_");
       const rawData = docSnap.data() as FirestoreHealthData;
 
-      /* ----- date handling ----- */
-      let finalDate: string | null = null;
-      const dateField = rawData.statusDate;
-      if (dateField) {
-        const jsDate =
-          dateField instanceof admin.firestore.Timestamp ?
-            dateField.toDate() :
-            dateField;
+      /* ---------- choose the correct date field ---------- */
+      const {healthStatus = 0, testDate, exposureDate} = rawData;
 
-        if (hideDate && jsDate instanceof Date) {
-          finalDate = maskDate(jsDate);
-        } else if (jsDate instanceof Date) {
-          finalDate = jsDate.toISOString().slice(0, 10);
+      let chosen: admin.firestore.Timestamp | Date | null | undefined = null;
+      if (healthStatus === 2) {
+        chosen = exposureDate;
+      } else if (healthStatus === 1 || healthStatus === 3) {
+        chosen = testDate;
+      }
+
+      /* ---------- format / mask ---------- */
+      let finalDate: string | null = null;
+      if (chosen) {
+        const jsDate =
+          chosen instanceof admin.firestore.Timestamp ?
+            chosen.toDate() :
+            chosen;
+
+        if (jsDate instanceof Date) {
+          finalDate = hideDate ? maskDate(jsDate) : jsDate.toISOString().slice(0, 10);
         }
       }
 
@@ -115,7 +128,7 @@ export const getUserHealthStatuses = onCall(
 /* Helper: mask real date → range bucket                              */
 /* ------------------------------------------------------------------ */
 function maskDate(d: Date): string {
-  const diffDays = Math.floor((Date.now() - d.getTime()) / 86_400_000); // ms → days
+  const diffDays = Math.floor((Date.now() - d.getTime()) / 86_400_000);
   if (diffDays <= 90) return "Last 90 Days";
   if (diffDays <= 180) return "Last 180 Days";
   if (diffDays <= 365) return "Last Year";
