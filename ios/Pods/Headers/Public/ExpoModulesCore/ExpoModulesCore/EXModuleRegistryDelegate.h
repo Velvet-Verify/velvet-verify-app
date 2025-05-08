@@ -1,1 +1,0 @@
-../../../../../../node_modules/expo-modules-core 2/ios/Legacy/ModuleRegistry/EXModuleRegistryDelegate.h

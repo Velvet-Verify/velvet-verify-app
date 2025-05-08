@@ -23,7 +23,10 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.velvetverifyapp"
+      "package": "com.anonymous.velvetverifyapp",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -50,6 +53,12 @@
       "eas": {
         "projectId": "d5ec91cd-e627-4c28-926d-1891bd420c29"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d5ec91cd-e627-4c28-926d-1891bd420c29"
     }
   }
 }
