@@ -200,7 +200,10 @@ export default function ConnectionsScreen() {
   const isIOS = Platform.OS === 'ios';
   const containerStyle = [
     theme.container,
-    { paddingBottom: isIOS ? insets.bottom + 60 : 15 },
+    {
+      paddingTop:    insets.top + 10,
+      paddingBottom: isIOS ? insets.bottom + 60 : 15
+    },
   ];
 
   return (
