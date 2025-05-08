@@ -1,0 +1,1 @@
+../../../../../../node_modules/expo-modules-core 2/common/cpp/TestingSyncJSCallInvoker.h

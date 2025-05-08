@@ -1,0 +1,1 @@
+../../../../../../node_modules/expo 2/ios/AppDelegates/EXAppDelegateWrapper.h
