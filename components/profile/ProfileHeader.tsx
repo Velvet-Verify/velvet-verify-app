@@ -56,9 +56,9 @@ export function ProfileHeader({
           <Text style={{ color: iconColor, fontSize: 24 }}>✕</Text>
         </TouchableOpacity>
       ) : onLogout ? (
-        <View style={styles.topRight}>
-          <Button title="Logout" onPress={onLogout} color={theme.buttonPrimary.backgroundColor} />
-        </View>
+        // <View style={styles.topRight}>
+        //   <Button title="Logout" onPress={onLogout} color={theme.buttonPrimary.backgroundColor} />
+        // </View>
       ) : null}
 
       {/* Avatar */}
