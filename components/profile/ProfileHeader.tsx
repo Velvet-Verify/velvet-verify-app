@@ -79,7 +79,7 @@ export function ProfileHeader({
           <View style={theme.profileHeaderActionsRow}>
             {onEditProfile && (
               <TouchableOpacity onPress={onEditProfile}>
-                <Text style={theme.profileHeaderLink}>Profile Editor</Text>
+                <Text style={theme.profileHeaderLink}>Edit Profile</Text>
               </TouchableOpacity>
             )}
 
