@@ -38,6 +38,7 @@ android/
 # local env files
 .env*.local
 .env
+.env.preview
 
 # typescript
 *.tsbuildinfo

@@ -2,8 +2,8 @@
 export default ({ config }) => {
   return {
     ...config,
-    version: "1.0.0",
-    runtimeVersion: "1.0.0",
+    version: "1.0.1",
+    runtimeVersion: "1.0.1",
     ios: {
       ...config.ios,
       infoPlist: {
