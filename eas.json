@@ -1,5 +1,5 @@
 {
-  "cli": { "appVersionSource": "local" },
+  "cli": { "appVersionSource": "remote" },
 
   "build": {
     "development": {
@@ -18,7 +18,8 @@
       "developmentClient": false,
       "distribution": "store",
       "channel": "preview",
-      "ios": { "simulator": false }
+      "ios": { "simulator": false },
+      "autoincrement": true
     }
   },
   "submit": {
