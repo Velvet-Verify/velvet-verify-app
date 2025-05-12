@@ -19,7 +19,7 @@
       "distribution": "store",
       "channel": "preview",
       "ios": { "simulator": false },
-      "autoIncrement": "buildNumber",
+      "autoIncrement": true,
       "env": {
         "FIREBASE_API_KEY":            "$FIREBASE_API_KEY",
         "FIREBASE_AUTH_DOMAIN":        "$FIREBASE_AUTH_DOMAIN",
