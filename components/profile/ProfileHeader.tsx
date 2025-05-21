@@ -57,7 +57,7 @@ export function ProfileHeader({
         </TouchableOpacity>
       ) : onLogout ? (
         <View style={styles.topRight}>
-          <Button title="Logout" onPress={onLogout} color={theme.buttonPrimary.backgroundColor} />
+          <Button title="Log out" onPress={onLogout} color={theme.buttonPrimary.backgroundColor} />
         </View>
       ) : null}
 

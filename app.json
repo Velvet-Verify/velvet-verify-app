@@ -16,7 +16,8 @@
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library so you can choose a profile photo.",
         "NSPhotoLibraryAddUsageDescription": "This app saves the photo you take to your library.",
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {
