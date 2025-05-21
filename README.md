@@ -1,50 +1,64 @@
-# Welcome to your Expo app 👋
+# Velvet Verify
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+**Velvet Verify** is a privacy-first STI contact tracing app that allows users to send anonymous exposure alerts and track their own sexual health status over time. The goal is to reduce the stigma and friction around disclosure while improving public health outcomes through decentralized data sharing.
 
-## Get started
+---
 
-1. Install dependencies
+## 🚀 Features
+- **Anonymous Exposure Alerts**: Notify past partners without revealing identity
+- **Private Health Tracker**: Log test results and track exposure status across multiple STIs
+- **Connection Levels**: Bond, Friend, Fling, and more—each with different data visibility rules
+- **Onboarding Flows**: Profile setup, membership selection, and alert logic in place
+- **Firebase Integration**: Auth, Firestore, Functions, and Storage
+- **Cross-Platform**: Built with React Native + Expo for iOS and Android
 
-   ```bash
-   npm install
-   ```
+---
 
-2. Start the app
+## 🧱 Tech Stack
+- **Frontend**: React Native, Expo, TypeScript
+- **Backend**: Firebase (Auth, Firestore, Storage, Functions)
+- **Privacy Architecture**: Custom hash-based identifier system to separate identity from sensitive health data
 
-   ```bash
-    npx expo start
-   ```
+---
 
-In the output, you'll find options to open the app in a
+## 🔐 Privacy Model
+Velvet Verify uses a multi-hash ID system to separate user identity from:
+- Profile data (PSUUID)
+- Health data (HSUUID)
+- Exposure logic (ESUUID)
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+This allows anonymous communication while preserving data ownership and integrity.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+---
 
-## Get a fresh project
+## 🧪 Running Locally
+1. Clone the repo
+2. Run `npm install`
+3. Add a `.env` file (Firebase config, etc.)
+4. Run `npx expo start`
 
-When you're ready, run:
+---
 
-```bash
-npm run reset-project
-```
+## 📦 Folder Structure Highlights
+- `/app` — React Native views organized by route group
+- `/components` — Shared UI and modal logic
+- `/functions` — Firebase backend functions (exposure alerts, test submission, hashed ID logic)
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## 🛠️ Status
+- ✅ Working prototype (iOS via TestFlight)
+- ✅ Closed cohort testing in progress
+- 🚧 Need technical cofounder to help refine architecture, scale security, and expand feature set
 
-To learn more about developing your project with Expo, look at the following resources:
+---
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## 🙋‍♂️ Why This Matters
+Disclosure is hard. Silence spreads risk. Velvet Verify aims to make sexual health data safe to share—**privately, respectfully, and effectively.**
 
-## Join the community
+---
 
-Join our community of developers creating universal apps.
+## 📬 Contact
+Raymond Willey — [raymond@velvetverifyapp.com](mailto:raymond@velvetverifyapp.com)
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+YC Reviewer Access: You may view this repo directly. Please reach out if you’d like a walkthrough or to see the TestFlight build.
